@@ -36,8 +36,8 @@ extract_address() {
   input="$(cat)"
   printf '%s' "$input" | jq -r '
     .address //
-    .onchain_address //
     .boarding_address //
+    .onchain_address //
     .result.address //
     empty
   ' 2>/dev/null || printf '%s\n' "$input" | sed -nE 's/.*((tb|bc|bcrt)1[0-9a-z]+).*/\1/p' | head -n 1

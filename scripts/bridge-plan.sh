@@ -51,7 +51,7 @@ Useful commands:
 
 RGB API examples:
 
-  r1 POST /issueassetnia '{"ticker":"USDX","name":"Demo USD","amount":1000,"precision":0}'
+  r1 POST /issueassetnia '{"ticker":"USDX","name":"Demo USD","amounts":[1000],"precision":0}'
   r1 GET /listassets
   r1 GET /nodeinfo
   rmm GET /nodeinfo

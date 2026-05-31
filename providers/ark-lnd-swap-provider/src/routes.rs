@@ -29,6 +29,7 @@ pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/health", get(health))
         .route("/v1/ark/receive", post(ark_receive))
+        .route("/v1/ark/balance", post(ark_balance))
         .route("/v1/ark/contract/pubkey", post(ark_contract_pubkey))
         .route("/v1/swaps", get(list_swaps))
         .route("/v1/swaps/ln-to-ark", post(create_ln_to_ark))
@@ -434,6 +435,19 @@ async fn ark_receive(
         state
             .ark
             .receive(wallet_dir, request.wallet_private_key_hex)
+            .await?,
+    ))
+}
+
+async fn ark_balance(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<ArkReceiveRequest>,
+) -> Result<Json<CommandResult>, ApiError> {
+    let wallet_dir = request.wallet_dir.map(PathBuf::from);
+    Ok(Json(
+        state
+            .ark
+            .balance(wallet_dir, request.wallet_private_key_hex)
             .await?,
     ))
 }

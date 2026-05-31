@@ -356,7 +356,7 @@ async fn run_harness(
     if let Some(value) = request.wait_timeout_sec {
         command.env("BRIDGE_TEST_WAIT_TIMEOUT_SEC", value.to_string());
     }
-    if is_trustless_mode(&run.mode)
+    if (run.mode == "setup-assets" || is_trustless_mode(&run.mode))
         && env::var("BRIDGE_TEST_ARK_TAKER_PRIVATE_KEY_HEX")
             .ok()
             .filter(|value| !value.trim().is_empty())

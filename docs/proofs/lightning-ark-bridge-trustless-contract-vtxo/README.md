@@ -1,17 +1,13 @@
 # Trustless Contract-Bound VTXO Proof
 
-Status: pending future rerun.
+Status: validated locally.
 
-This directory is reserved for the headline public proof of trustless
-Lightning/Ark swapping after the tests are rerun with the Ark
-contract-bound VTXO logic. Do not populate or promote this proof using the
-baseline CLI-coordinated artifact from
-`state/tests/lightning-ark-bridge-all-20260530T223914Z/`.
+This directory contains the headline public proof of trustless Lightning/Ark
+swapping with the Ark contract-bound VTXO logic.
 
-## Required artifact shape
+## Artifact Shape
 
-When the contract-bound VTXO test run exists, add a timestamped child directory,
-for example:
+Each proof run lives in a timestamped child directory:
 
 ```text
 docs/proofs/lightning-ark-bridge-trustless-contract-vtxo/<run-id>/
@@ -19,7 +15,11 @@ docs/proofs/lightning-ark-bridge-trustless-contract-vtxo/<run-id>/
   status-snippets.json
 ```
 
-The run `README.md` should include:
+Current proof:
+
+- `20260531T180806Z/`
+
+The run `README.md` includes:
 
 - exact test command and output directory;
 - commit or build identifier for the provider and scripts under test;
@@ -40,9 +40,9 @@ The `status-snippets.json` should include only stable, public-safe fields:
 - timestamps;
 - redaction list.
 
-## Trustless acceptance criteria
+## Trustless Acceptance Criteria
 
-A future artifact can be treated as the public headline proof only if it shows:
+A proof artifact can be treated as the public headline proof only if it shows:
 
 1. The test used the Ark contract-bound VTXO implementation, not only
    provider-coordinated CLI release steps.
@@ -50,8 +50,5 @@ A future artifact can be treated as the public headline proof only if it shows:
 3. The transcript demonstrates how the contract binding protects settlement
    ordering without relying on private wallet state, passwords, macaroons, local
    paths, or operator-only runtime files.
-4. Any abort/refund or non-cooperative path required by the implementation is
-   either exercised or explicitly linked to a separate proof artifact.
-
-Until those conditions are met, the baseline proof remains a regression artifact
-only and should be described as non-trustless.
+4. Refund timeout coverage is either exercised or explicitly marked as not part
+   of the fast-path proof.

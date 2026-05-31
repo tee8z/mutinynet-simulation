@@ -1,6 +1,7 @@
 # Trustless Ark VTXO Swap
 
-Status: experimental local implementation for the Mutinynet simulation. It is not production audited.
+Status: implemented and validated in the local Mutinynet simulation. It is not
+production audited.
 
 The trustless modes bind the Ark asset leg and the Lightning/RGB leg to the same 32-byte preimage. The Ark side uses a SHA256 Taproot VHTLC carrying the Ark asset packet. The Lightning/RGB side uses the same SHA256 value as the BOLT11 payment hash.
 
@@ -14,7 +15,7 @@ The trustless claim is scoped to Arkade operator/signer, expiry, fee, and watche
 | LND adapter | Direct LND gRPC client for hold invoices, invoice payment, settlement, cancellation, and payreq decoding. |
 | Ark wallet adapter | Rust Ark client/gRPC path for Ark receive and asset sends. |
 | Ark contract adapter | Rust Ark gRPC/client path for VHTLC template, fund, verify, claim, and refund. |
-| Simulation bootstrap | RGB Lightning node API issues RGB assets; `ark` CLI creates local Ark wallets and issues/reissues demo Ark assets for the harness. |
+| Simulation bootstrap | RGB Lightning node API issues RGB assets; `ark` CLI creates local Ark wallets, issues demo Ark assets, and funds local test inventory. |
 
 Ark wallet operations use `ARK_LND_PROVIDER_ARK_PRIVATE_KEY_HEX` or a request field named `wallet_private_key_hex`. `scripts/start.sh` can derive the local provider test key from the configured Ark CLI wallet and pass it into the provider process.
 
@@ -34,18 +35,22 @@ payment.
 
 ## Contract Template
 
-The provider builds a Taproot output with four leaves:
+The provider builds an Ark VTXO Taproot output with two Ark-compatible closure
+leaves. Both fast-path leaves require the Ark server signature, which keeps the
+contract inside the Ark offchain protocol path.
 
 | Leaf | Spend condition |
 | --- | --- |
-| Claim | `OP_SHA256 <H> OP_EQUALVERIFY`, claimant key signature, Ark server signature. |
+| Claim | `OP_SHA256 <H> OP_EQUAL OP_VERIFY`, claimant key signature, Ark server signature. |
 | Refund | `ark_refund_time` CLTV, refund key signature, Ark server signature. |
-| Unilateral claim | `OP_SHA256 <H> OP_EQUALVERIFY`, CSV claim delay, claimant key signature. |
-| Unilateral refund | `ark_refund_time` CLTV, CSV refund delay, refund key signature. |
 
 The template response includes the contract Ark address, script pubkey, taproot
 tree, claim/refund pubkeys, refund time, SHA256 payment hash, asset id, asset
 amount, VTXO sats, and the Ark server pubkey returned by `GetInfo`.
+
+The claim preimage is attached as the Ark condition witness on both the Ark
+transaction and its checkpoint transaction, so arkd can validate the condition
+before finalizing the offchain spend.
 
 ## RGB Assets Buy Ark Assets
 
@@ -180,12 +185,37 @@ The provider wallet key comes from `ARK_LND_PROVIDER_ARK_PRIVATE_KEY_HEX`. The
 startup helper can populate that environment value from the local provider Ark
 CLI wallet during simulation startup.
 
+The bridge UI runs the same harness and derives the local taker key for
+`setup-assets` and trustless modes:
+
+```bash
+sim-bridge-ui
+
+curl -sS -X POST http://127.0.0.1:8091/api/flows/start/setup-assets \
+  -H 'Content-Type: application/json' \
+  --data '{"rgb_asset_id":"<rgb_asset_id>","ark_asset_id":"<ark_asset_id>"}' | jq
+
+curl -sS -X POST http://127.0.0.1:8091/api/flows/start/trustless-all \
+  -H 'Content-Type: application/json' \
+  --data '{"rgb_asset_id":"<rgb_asset_id>","ark_asset_id":"<ark_asset_id>"}' | jq
+```
+
+`setup-assets` funds the provider Ark gRPC wallet and the taker Ark gRPC wallet
+with BTC liquidity plus Ark asset inventory. The CLI taker wallet is also funded
+for local receive-address checks.
+
 ## Artifacts
 
-Trustless runs write under:
+Trustless runs from the script write under:
 
 ```text
 state/tests/trustless-ark-swap-<mode>-<timestamp>/
+```
+
+Trustless runs from the UI write under:
+
+```text
+state/bridge-ui/<run-id>/artifacts/
 ```
 
 Useful review fields:
@@ -211,6 +241,19 @@ required lock is visible, the revealed preimage hashes to the BOLT11 payment
 hash, and the final claim or refund path matches the timeout branch being
 tested.
 
+Latest local proof run:
+
+```text
+setup run: 1780250843-69448fea-47cd-49ca-b487-ca9013b05534
+proof run: 1780250859-6acb27f1-c0c7-445a-8a43-c56792c82a88
+artifact dir: state/bridge-ui/1780250859-6acb27f1-c0c7-445a-8a43-c56792c82a88/artifacts/
+public proof: docs/proofs/lightning-ark-bridge-trustless-contract-vtxo/20260531T180806Z/
+```
+
+Both legs in that run have `contract_funded`, `contract_claimed`,
+`preimage_verified`, `ln_or_rgb_settled`, and `no_preimage_before_claim` set to
+`true`.
+
 ## Environment
 
 Provider gRPC settings:
@@ -220,8 +263,6 @@ ARK_LND_PROVIDER_ARK_SERVER_URL=http://127.0.0.1:7070
 ARK_LND_PROVIDER_ARK_NETWORK=mutinynet
 ARK_LND_PROVIDER_ARK_PRIVATE_KEY_HEX=<32-byte-hex-static-wallet-key>
 ARK_LND_PROVIDER_ARK_CONTRACT_VTXO_SATS=1000
-ARK_LND_PROVIDER_ARK_CONTRACT_CLAIM_DELAY_BLOCKS=1
-ARK_LND_PROVIDER_ARK_CONTRACT_REFUND_DELAY_BLOCKS=1
 ARK_LND_PROVIDER_LND_RPCSERVER=127.0.0.1:10042
 ARK_LND_PROVIDER_LND_TLS_CERT=./data/lnd2/tls.cert
 ARK_LND_PROVIDER_LND_NO_MACAROONS=1
@@ -237,7 +278,7 @@ BRIDGE_TEST_ARK_TAKER_PRIVATE_KEY_HEX=<32-byte-hex-key>
 ## Operational Assumptions
 
 - Arkade server/signer cooperation is part of the fast path.
-- Unilateral paths use the configured CSV delays and refund CLTV.
+- Refund uses the configured absolute CLTV.
 - The harness records claim observation explicitly through provider endpoints
   and artifact checks.
 - Contract code is local experimental code built on the pinned Ark Rust crates.

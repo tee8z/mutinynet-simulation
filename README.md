@@ -181,8 +181,10 @@ Then open the UI. The JSON API is available for scripts:
 ```bash
 xdg-open http://127.0.0.1:8091/
 curl -sS http://127.0.0.1:8091/api/cluster | jq
+curl -sS -X POST http://127.0.0.1:8091/api/flows/start/setup-assets | jq
 curl -sS -X POST http://127.0.0.1:8091/api/flows/start/rgb-asset-to-ark-asset | jq
 curl -sS -X POST http://127.0.0.1:8091/api/flows/start/ark-asset-to-rgb-asset | jq
+curl -sS -X POST http://127.0.0.1:8091/api/flows/start/trustless-all | jq
 curl -sS http://127.0.0.1:8091/api/flows/<run-id> | jq
 ```
 
@@ -200,9 +202,9 @@ Repeated local runs move Lightning liquidity. If RGB -> Ark fails with
 | --- | --- |
 | LND access | Direct LND gRPC client. |
 | Ark provider access | Rust Ark gRPC/client provider path. |
-| Simulation bootstrap | RGB Lightning node API issues RGB assets; `ark` CLI initializes local Ark wallets and issues/reissues demo Ark assets. |
+| Simulation bootstrap | RGB Lightning node API issues RGB assets; `ark` CLI initializes local Ark wallets, issues demo Ark assets, and funds local test inventory. |
 | Swap modes | Mapped-asset flows and Ark VHTLC contract flows are available from the harness. |
-| Proof artifacts | Public mapped-asset transcript under `docs/proofs/`; trustless mode artifacts under `state/tests/trustless-ark-swap-*`. |
+| Proof artifacts | Public mapped-asset and trustless VTXO transcripts under `docs/proofs/`; UI run artifacts under `state/bridge-ui/`. |
 
 The Ark VTXO flow is documented in
 [docs/trustless-ark-swap.md](docs/trustless-ark-swap.md). The local harness
@@ -238,8 +240,7 @@ supports `trustless-rgb-asset-to-ark-asset`,
         choose in -> quote -> pay -> receipt
 ```
 
-- Validate the Ark contract-bound VTXO path with a fresh reviewed proof run,
-  including timeout/refund cases.
+- Add timeout/refund proof coverage for the Ark contract-bound VTXO path.
 - Add a [Taproot Assets](https://github.com/lightninglabs/taproot-assets)
   example that pays to and from Ark and RGB assets.
 - Add quoting for inventory, rates, routes, fees, expiries, and min/max amounts.

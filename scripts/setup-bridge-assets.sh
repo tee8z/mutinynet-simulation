@@ -15,7 +15,10 @@ BRIDGE_SETUP_RGB_NAME="${BRIDGE_SETUP_RGB_NAME:-Demo USD}"
 BRIDGE_SETUP_RGB_AMOUNT="${BRIDGE_SETUP_RGB_AMOUNT:-2000}"
 BRIDGE_SETUP_RGB_PRECISION="${BRIDGE_SETUP_RGB_PRECISION:-0}"
 BRIDGE_SETUP_ARK_AMOUNT="${BRIDGE_SETUP_ARK_AMOUNT:-2000}"
+BRIDGE_SETUP_ARK_PROVIDER_AMOUNT="${BRIDGE_SETUP_ARK_PROVIDER_AMOUNT:-${BRIDGE_TEST_ARK_ASSET_AMOUNT:-100}}"
+BRIDGE_SETUP_ARK_PROVIDER_MIN_SATS="${BRIDGE_SETUP_ARK_PROVIDER_MIN_SATS:-5000}"
 BRIDGE_SETUP_ARK_TAKER_AMOUNT="${BRIDGE_SETUP_ARK_TAKER_AMOUNT:-${BRIDGE_TEST_ARK_ASSET_AMOUNT:-100}}"
+BRIDGE_SETUP_ARK_TAKER_MIN_SATS="${BRIDGE_SETUP_ARK_TAKER_MIN_SATS:-5000}"
 BRIDGE_SETUP_ARK_TICKER="${BRIDGE_SETUP_ARK_TICKER:-ARKUSD}"
 
 mkdir -p "$BRIDGE_SETUP_OUTPUT_DIR"
@@ -52,6 +55,230 @@ ark_balance_has_asset() {
     "$balance_file" >/dev/null
 }
 
+provider_post() {
+  local path="$1" body="${2:-}"
+  if [ -z "$body" ]; then
+    body='{}'
+  fi
+  local response_file status
+  response_file="$(mktemp "$BRIDGE_SETUP_OUTPUT_DIR/provider-response.XXXXXX")"
+  status="$(curl -sS --output "$response_file" --write-out '%{http_code}' \
+    -H 'Content-Type: application/json' \
+    --data "$body" "$(ark_lnd_provider_url)$path")" || {
+    cat "$response_file" >&2 || true
+    rm -f "$response_file"
+    return 1
+  }
+  if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
+    cat "$response_file" >&2 || true
+    rm -f "$response_file"
+    return 1
+  fi
+  cat "$response_file"
+  rm -f "$response_file"
+}
+
+provider_ark_balance_has_asset() {
+  local asset_id="$1" needed="$2" balance_file="$3"
+  provider_post /v1/ark/balance '{}' | save_json "$balance_file"
+  jq -e \
+    --arg asset_id "$asset_id" \
+    --arg amount "$needed" \
+    '(.stdout.assets // [] | map(select(.asset_id == $asset_id) | .amount) | add // 0 | tonumber) >= ($amount | tonumber)' \
+    "$balance_file" >/dev/null
+}
+
+provider_ark_total_sats() {
+  local balance_file="$1"
+  provider_post /v1/ark/balance '{}' | save_json "$balance_file"
+  jq -er '(.stdout.total_sat // 0) | tonumber' "$balance_file"
+}
+
+ark_grpc_wallet_body() {
+  local private_key_hex="$1"
+  jq -nc --arg wallet_private_key_hex "$private_key_hex" \
+    '{wallet_private_key_hex:$wallet_private_key_hex}'
+}
+
+ark_grpc_balance_has_asset() {
+  local private_key_hex="$1" asset_id="$2" needed="$3" balance_file="$4"
+  provider_post /v1/ark/balance "$(ark_grpc_wallet_body "$private_key_hex")" | save_json "$balance_file"
+  jq -e \
+    --arg asset_id "$asset_id" \
+    --arg amount "$needed" \
+    '(.stdout.assets // [] | map(select(.asset_id == $asset_id) | .amount) | add // 0 | tonumber) >= ($amount | tonumber)' \
+    "$balance_file" >/dev/null
+}
+
+ark_grpc_total_sats() {
+  local private_key_hex="$1" balance_file="$2"
+  provider_post /v1/ark/balance "$(ark_grpc_wallet_body "$private_key_hex")" | save_json "$balance_file"
+  jq -er '(.stdout.total_sat // 0) | tonumber' "$balance_file"
+}
+
+ensure_ark_grpc_sats() {
+  local label="$1" private_key_hex="$2" needed="$3" balance_file="$4" receive_file="$5" send_file="$6"
+  local current recipient amount start
+  current="$(ark_grpc_total_sats "$private_key_hex" "$balance_file")"
+  if [ "$current" -ge "$needed" ]; then
+    log "$label Ark gRPC wallet already has BTC liquidity"
+    return 0
+  fi
+
+  amount="$(( needed - current ))"
+  log "funding $label Ark gRPC wallet with BTC liquidity"
+  provider_post /v1/ark/receive "$(ark_grpc_wallet_body "$private_key_hex")" | save_json "$receive_file"
+  recipient="$(jq -er '.stdout.ark_address // .stdout.address // .ark_address // .address' "$receive_file")"
+  ark_cli maker send \
+    --to "$recipient" \
+    --amount "$amount" \
+    --password "$ARK_CLI_PASSWORD" |
+    save_json "$send_file"
+
+  start="$(date +%s)"
+  while true; do
+    current="$(ark_grpc_total_sats "$private_key_hex" "$balance_file")"
+    if [ "$current" -ge "$needed" ]; then
+      return 0
+    fi
+    if [ $(( "$(date +%s)" - start )) -ge "$WAIT_TIMEOUT_SEC" ]; then
+      log "$label Ark gRPC wallet did not show the expected BTC liquidity before timeout"
+      cat "$balance_file" >&2 || true
+      return 1
+    fi
+    sleep 5
+  done
+}
+
+ensure_ark_grpc_asset() {
+  local label="$1" private_key_hex="$2" asset_id="$3" needed="$4" balance_file="$5" receive_file="$6" send_file="$7"
+  local recipient start
+  if ark_grpc_balance_has_asset "$private_key_hex" "$asset_id" "$needed" "$balance_file"; then
+    log "$label Ark gRPC wallet already has asset inventory"
+    return 0
+  fi
+
+  log "funding $label Ark gRPC wallet with asset inventory"
+  provider_post /v1/ark/receive "$(ark_grpc_wallet_body "$private_key_hex")" | save_json "$receive_file"
+  recipient="$(jq -er '.stdout.ark_address // .stdout.address // .ark_address // .address' "$receive_file")"
+  ark_cli maker send \
+    --to "$recipient" \
+    --asset-id "$asset_id" \
+    --amount "$needed" \
+    --password "$ARK_CLI_PASSWORD" |
+    save_json "$send_file"
+
+  start="$(date +%s)"
+  while true; do
+    if ark_grpc_balance_has_asset "$private_key_hex" "$asset_id" "$needed" "$balance_file"; then
+      return 0
+    fi
+    if [ $(( "$(date +%s)" - start )) -ge "$WAIT_TIMEOUT_SEC" ]; then
+      log "$label Ark gRPC wallet did not show the expected asset balance before timeout"
+      cat "$balance_file" >&2 || true
+      return 1
+    fi
+    sleep 5
+  done
+}
+
+ensure_provider_ark_sats() {
+  local needed="$1" balance_file="$2" receive_file="$3" send_file="$4"
+  local current recipient amount start
+  current="$(provider_ark_total_sats "$balance_file")"
+  if [ "$current" -ge "$needed" ]; then
+    log "provider Ark gRPC wallet already has BTC liquidity"
+    return 0
+  fi
+
+  amount="$(( needed - current ))"
+  log "funding provider Ark gRPC wallet with BTC liquidity"
+  provider_post /v1/ark/receive '{}' | save_json "$receive_file"
+  recipient="$(jq -er '.stdout.ark_address // .stdout.address // .ark_address // .address' "$receive_file")"
+  ark_cli maker send \
+    --to "$recipient" \
+    --amount "$amount" \
+    --password "$ARK_CLI_PASSWORD" |
+    save_json "$send_file"
+
+  start="$(date +%s)"
+  while true; do
+    current="$(provider_ark_total_sats "$balance_file")"
+    if [ "$current" -ge "$needed" ]; then
+      return 0
+    fi
+    if [ $(( "$(date +%s)" - start )) -ge "$WAIT_TIMEOUT_SEC" ]; then
+      log "provider Ark gRPC wallet did not show the expected BTC liquidity before timeout"
+      cat "$balance_file" >&2 || true
+      return 1
+    fi
+    sleep 5
+  done
+}
+
+ensure_provider_ark_asset() {
+  local asset_id="$1" needed="$2" balance_file="$3" receive_file="$4" send_file="$5" recipient start
+  if provider_ark_balance_has_asset "$asset_id" "$needed" "$balance_file"; then
+    log "provider Ark gRPC wallet already has asset inventory"
+    return 0
+  fi
+
+  log "funding provider Ark gRPC wallet with asset inventory"
+  provider_post /v1/ark/receive '{}' | save_json "$receive_file"
+  recipient="$(jq -er '.stdout.ark_address // .stdout.address // .ark_address // .address' "$receive_file")"
+  ark_cli maker send \
+    --to "$recipient" \
+    --asset-id "$asset_id" \
+    --amount "$needed" \
+    --password "$ARK_CLI_PASSWORD" |
+    save_json "$send_file"
+
+  start="$(date +%s)"
+  while true; do
+    if provider_ark_balance_has_asset "$asset_id" "$needed" "$balance_file"; then
+      return 0
+    fi
+    if [ $(( "$(date +%s)" - start )) -ge "$WAIT_TIMEOUT_SEC" ]; then
+      log "provider Ark gRPC wallet did not show the expected asset balance before timeout"
+      cat "$balance_file" >&2 || true
+      return 1
+    fi
+    sleep 5
+  done
+}
+
+node_has_colorable_utxo() {
+  local node="$1"
+  api "$node" POST /listunspents '{"skip_sync":false}' | jq -e \
+    '[.unspents[]? | select((.utxo.colorable == true) and ((.rgb_allocations // []) | length == 0))] | length > 0' \
+    >/dev/null
+}
+
+ensure_colorable_utxos() {
+  local node="$1" create_file="$2" start
+  if node_has_colorable_utxo "$node"; then
+    log "$node already has a colorable RGB UTXO"
+    return 0
+  fi
+
+  log "creating RGB colorable UTXOs on $node"
+  api "$node" POST /createutxos '{"up_to":false,"num":4,"size":32000,"fee_rate":7,"skip_sync":false}' |
+    save_json "$create_file"
+
+  start="$(date +%s)"
+  while true; do
+    if node_has_colorable_utxo "$node"; then
+      return 0
+    fi
+    if [ $(( "$(date +%s)" - start )) -ge "$WAIT_TIMEOUT_SEC" ]; then
+      log "$node did not show a colorable RGB UTXO before timeout"
+      api "$node" POST /listunspents '{"skip_sync":false}' | jq . >&2 || true
+      return 1
+    fi
+    sleep 5
+  done
+}
+
 wait_for_rln_node node1
 wait_for_rln_node node4
 wait_for_arkd
@@ -59,6 +286,7 @@ wait_for_ark_lnd_provider
 
 rgb_asset_id="${BRIDGE_TEST_RGB_ASSET_ID:-${RGB_MM_ASSET_ID:-}}"
 if [ -z "$rgb_asset_id" ]; then
+  ensure_colorable_utxos node1 "$BRIDGE_SETUP_OUTPUT_DIR/rgb-create-utxos.json"
   log "issuing RGB asset on node1"
   rgb_issue_file="$BRIDGE_SETUP_OUTPUT_DIR/rgb-issue.json"
   api node1 POST /issueassetnia "$(jq -nc \
@@ -66,7 +294,7 @@ if [ -z "$rgb_asset_id" ]; then
     --arg name "$BRIDGE_SETUP_RGB_NAME" \
     --arg amount "$BRIDGE_SETUP_RGB_AMOUNT" \
     --argjson precision "$BRIDGE_SETUP_RGB_PRECISION" \
-    '{ticker:$ticker,name:$name,amount:($amount|tonumber),precision:$precision}')" |
+    '{ticker:$ticker,name:$name,amounts:[($amount|tonumber)],precision:$precision}')" |
     save_json "$rgb_issue_file"
   rgb_asset_id="$(extract_rgb_asset_id <"$rgb_issue_file")"
 else
@@ -107,6 +335,20 @@ ark_balance_has_asset maker "$ark_asset_id" "${BRIDGE_TEST_ARK_ASSET_AMOUNT:-100
     exit 1
   }
 
+provider_balance_file="$BRIDGE_SETUP_OUTPUT_DIR/ark-provider-balance.json"
+ensure_provider_ark_sats \
+  "$BRIDGE_SETUP_ARK_PROVIDER_MIN_SATS" \
+  "$BRIDGE_SETUP_OUTPUT_DIR/ark-provider-btc-balance.json" \
+  "$BRIDGE_SETUP_OUTPUT_DIR/ark-provider-btc-receive.json" \
+  "$BRIDGE_SETUP_OUTPUT_DIR/ark-maker-send-btc-to-provider.json"
+
+ensure_provider_ark_asset \
+  "$ark_asset_id" \
+  "$BRIDGE_SETUP_ARK_PROVIDER_AMOUNT" \
+  "$provider_balance_file" \
+  "$BRIDGE_SETUP_OUTPUT_DIR/ark-provider-receive.json" \
+  "$BRIDGE_SETUP_OUTPUT_DIR/ark-maker-send-to-provider.json"
+
 taker_balance_file="$BRIDGE_SETUP_OUTPUT_DIR/ark-taker-balance.json"
 if ark_balance_has_asset taker "$ark_asset_id" "$BRIDGE_SETUP_ARK_TAKER_AMOUNT" "$taker_balance_file"; then
   log "taker wallet already has Ark asset inventory"
@@ -121,6 +363,25 @@ else
     --password "$ARK_CLI_PASSWORD" |
     save_json "$BRIDGE_SETUP_OUTPUT_DIR/ark-maker-send-to-taker.json"
   ark_cli taker balance | save_json "$taker_balance_file"
+fi
+
+if [ -n "${BRIDGE_TEST_ARK_TAKER_PRIVATE_KEY_HEX:-}" ]; then
+  ensure_ark_grpc_sats \
+    taker \
+    "$BRIDGE_TEST_ARK_TAKER_PRIVATE_KEY_HEX" \
+    "$BRIDGE_SETUP_ARK_TAKER_MIN_SATS" \
+    "$BRIDGE_SETUP_OUTPUT_DIR/ark-taker-grpc-btc-balance.json" \
+    "$BRIDGE_SETUP_OUTPUT_DIR/ark-taker-grpc-btc-receive.json" \
+    "$BRIDGE_SETUP_OUTPUT_DIR/ark-maker-send-btc-to-taker-grpc.json"
+
+  ensure_ark_grpc_asset \
+    taker \
+    "$BRIDGE_TEST_ARK_TAKER_PRIVATE_KEY_HEX" \
+    "$ark_asset_id" \
+    "$BRIDGE_SETUP_ARK_TAKER_AMOUNT" \
+    "$BRIDGE_SETUP_OUTPUT_DIR/ark-taker-grpc-balance.json" \
+    "$BRIDGE_SETUP_OUTPUT_DIR/ark-taker-grpc-receive.json" \
+    "$BRIDGE_SETUP_OUTPUT_DIR/ark-maker-send-to-taker-grpc.json"
 fi
 
 jq -nc \

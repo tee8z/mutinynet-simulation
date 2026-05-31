@@ -264,13 +264,7 @@ impl ArkContractClient {
                       msg: bitcoin::secp256k1::Message|
          -> Result<Vec<(Signature, XOnlyPublicKey)>, ark_core::Error> {
             if let Some(preimage) = preimage.as_ref() {
-                input.unknown.insert(
-                    psbt::raw::Key {
-                        type_value: 222,
-                        key: VTXO_CONDITION_KEY.to_vec(),
-                    },
-                    condition_witness(preimage),
-                );
+                insert_condition_witness(input, preimage);
             }
 
             let sig = Secp256k1::new().sign_schnorr_no_aux_rand(&msg, &keypair);
@@ -289,9 +283,13 @@ impl ArkContractClient {
 
         let mut signed_checkpoints = Vec::new();
         for mut checkpoint in response.signed_checkpoint_txs {
-            let signer = |_: &mut psbt::Input,
+            let signer = |input: &mut psbt::Input,
                           msg: bitcoin::secp256k1::Message|
              -> Result<Vec<(Signature, XOnlyPublicKey)>, ark_core::Error> {
+                if let Some(preimage) = preimage.as_ref() {
+                    insert_condition_witness(input, preimage);
+                }
+
                 let sig = Secp256k1::new().sign_schnorr_no_aux_rand(&msg, &keypair);
                 Ok(vec![(sig, keypair.x_only_public_key().0)])
             };
@@ -354,8 +352,6 @@ impl ArkContractClient {
             server_pubkey,
             spec.preimage_hash,
             spec.refund_time,
-            Sequence::from_height(delay_to_u16(self.settings.unilateral_claim_delay_blocks)?),
-            Sequence::from_height(delay_to_u16(self.settings.unilateral_refund_delay_blocks)?),
         )?;
         let spend_info = vhtlc.spend_info()?;
         let script_pubkey = tr_script_pubkey(&spend_info);
@@ -370,8 +366,6 @@ impl ArkContractClient {
             spend_info,
             claim_script: vhtlc.claim_script(),
             refund_script: vhtlc.refund_script(),
-            unilateral_claim_script: vhtlc.unilateral_claim_script(),
-            unilateral_refund_script: vhtlc.unilateral_refund_script(),
             tapscripts,
         })
     }
@@ -444,8 +438,6 @@ impl ArkContractClient {
             "ark_refund_time": context.spec.refund_time,
             "claim_tapleaf_script": context.claim_script.as_bytes().to_lower_hex_string(),
             "refund_tapleaf_script": context.refund_script.as_bytes().to_lower_hex_string(),
-            "unilateral_claim_tapleaf_script": context.unilateral_claim_script.as_bytes().to_lower_hex_string(),
-            "unilateral_refund_tapleaf_script": context.unilateral_refund_script.as_bytes().to_lower_hex_string(),
             "hash_op": "OP_SHA256",
             "network": self.settings.network,
             "preimage_hash_sha256": context.spec.preimage_hash_hex,
@@ -587,8 +579,6 @@ struct ContractContext {
     spend_info: TaprootSpendInfo,
     claim_script: ScriptBuf,
     refund_script: ScriptBuf,
-    unilateral_claim_script: ScriptBuf,
-    unilateral_refund_script: ScriptBuf,
     tapscripts: Vec<ScriptBuf>,
 }
 
@@ -613,8 +603,6 @@ struct Sha256Vhtlc {
     server_pubkey: XOnlyPublicKey,
     preimage_hash: [u8; 32],
     refund_time: i64,
-    claim_delay: Sequence,
-    refund_delay: Sequence,
 }
 
 impl Sha256Vhtlc {
@@ -624,8 +612,6 @@ impl Sha256Vhtlc {
         server_pubkey: XOnlyPublicKey,
         preimage_hash: [u8; 32],
         refund_time: i64,
-        claim_delay: Sequence,
-        refund_delay: Sequence,
     ) -> anyhow::Result<Self> {
         if refund_time <= 0 {
             return Err(anyhow!("ark_refund_time must be positive"));
@@ -636,8 +622,6 @@ impl Sha256Vhtlc {
             server_pubkey,
             preimage_hash,
             refund_time,
-            claim_delay,
-            refund_delay,
         })
     }
 
@@ -645,7 +629,8 @@ impl Sha256Vhtlc {
         ScriptBuf::builder()
             .push_opcode(OP_SHA256)
             .push_slice(self.preimage_hash)
-            .push_opcode(OP_EQUALVERIFY)
+            .push_opcode(OP_EQUAL)
+            .push_opcode(OP_VERIFY)
             .push_x_only_key(&self.claim_pubkey)
             .push_opcode(OP_CHECKSIGVERIFY)
             .push_x_only_key(&self.server_pubkey)
@@ -665,39 +650,8 @@ impl Sha256Vhtlc {
             .into_script()
     }
 
-    fn unilateral_claim_script(&self) -> ScriptBuf {
-        ScriptBuf::builder()
-            .push_opcode(OP_SHA256)
-            .push_slice(self.preimage_hash)
-            .push_opcode(OP_EQUALVERIFY)
-            .push_int(self.claim_delay.to_consensus_u32() as i64)
-            .push_opcode(OP_CSV)
-            .push_opcode(OP_DROP)
-            .push_x_only_key(&self.claim_pubkey)
-            .push_opcode(OP_CHECKSIG)
-            .into_script()
-    }
-
-    fn unilateral_refund_script(&self) -> ScriptBuf {
-        ScriptBuf::builder()
-            .push_int(self.refund_time)
-            .push_opcode(OP_CLTV)
-            .push_opcode(OP_DROP)
-            .push_int(self.refund_delay.to_consensus_u32() as i64)
-            .push_opcode(OP_CSV)
-            .push_opcode(OP_DROP)
-            .push_x_only_key(&self.refund_pubkey)
-            .push_opcode(OP_CHECKSIG)
-            .into_script()
-    }
-
     fn scripts(&self) -> Vec<ScriptBuf> {
-        vec![
-            self.claim_script(),
-            self.refund_script(),
-            self.unilateral_claim_script(),
-            self.unilateral_refund_script(),
-        ]
+        vec![self.claim_script(), self.refund_script()]
     }
 
     fn spend_info(&self) -> anyhow::Result<TaprootSpendInfo> {
@@ -709,7 +663,7 @@ impl Sha256Vhtlc {
         let mut builder = TaprootBuilder::new();
         for script in self.scripts() {
             builder = builder
-                .add_leaf(2, script)
+                .add_leaf(1, script)
                 .map_err(|err| anyhow!("adding VHTLC taproot leaf: {err}"))?;
         }
 
@@ -768,13 +722,6 @@ fn parse_u64(label: &str, value: &str) -> anyhow::Result<u64> {
         .with_context(|| format!("{label} must be an unsigned integer"))
 }
 
-fn delay_to_u16(value: i64) -> anyhow::Result<u16> {
-    if !(1..=u16::MAX as i64).contains(&value) {
-        return Err(anyhow!("contract delay must be between 1 and {}", u16::MAX));
-    }
-    Ok(value as u16)
-}
-
 fn condition_witness(preimage: &[u8]) -> Vec<u8> {
     let mut bytes = vec![1];
     VarInt(preimage.len() as u64)
@@ -782,6 +729,16 @@ fn condition_witness(preimage: &[u8]) -> Vec<u8> {
         .expect("vec writes cannot fail");
     bytes.extend_from_slice(preimage);
     bytes
+}
+
+fn insert_condition_witness(input: &mut psbt::Input, preimage: &[u8]) {
+    input.unknown.insert(
+        psbt::raw::Key {
+            type_value: 222,
+            key: VTXO_CONDITION_KEY.to_vec(),
+        },
+        condition_witness(preimage),
+    );
 }
 
 fn public_vtxo(vtxo: &VirtualTxOutPoint) -> Value {

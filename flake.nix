@@ -241,7 +241,12 @@
           pname = "ark-lnd-swap-provider";
           version = "0.1.0";
           src = ./providers/ark-lnd-swap-provider;
-          cargoLock.lockFile = ./providers/ark-lnd-swap-provider/Cargo.lock;
+          cargoLock = {
+            lockFile = ./providers/ark-lnd-swap-provider/Cargo.lock;
+            outputHashes = {
+              "voltage-tonic-lnd-0.4.0" = "sha256-ZYA5jE7wE84avEEE7QgHucag8t5lGli5sSiQYE47Scg=";
+            };
+          };
           nativeBuildInputs = [
             pkgs.pkg-config
             pkgs.protobuf

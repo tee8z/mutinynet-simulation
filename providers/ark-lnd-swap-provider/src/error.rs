@@ -34,7 +34,7 @@ impl IntoResponse for ApiError {
         (
             self.status,
             Json(ErrorResponse {
-                error: self.error.to_string(),
+                error: format!("{:#}", self.error),
             }),
         )
             .into_response()

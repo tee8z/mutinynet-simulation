@@ -43,6 +43,7 @@ POST /v1/swaps/{id}/ark-contract/claim
 POST /v1/swaps/{id}/ark-contract/refund
 POST /v1/swaps/{id}/ark-contract/observe-claim
 POST /v1/ark/receive
+POST /v1/ark/balance
 POST /v1/ark/contract/pubkey
 ```
 

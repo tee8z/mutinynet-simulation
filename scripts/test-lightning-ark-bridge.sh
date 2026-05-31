@@ -240,7 +240,7 @@ ark_contract_pubkey_for_wallet() {
 contract_field() {
   local file="$1" field="$2"
   jq -er --arg field "$field" \
-    '.[$field] // .ark_contract_result[$field] // .ark_contract_result.stdout[$field] // empty' \
+    '.[$field] // .stdout[$field] // .ark_contract_result[$field] // .ark_contract_result.stdout[$field] // empty' \
     "$file"
 }
 
@@ -664,7 +664,7 @@ run_trustless_rgb_asset_to_ark_asset() {
   recipient="$(ark_receive_address "$BRIDGE_TEST_ARK_TAKER_WALLET" "$receive_file")"
   pubkey_file="$BRIDGE_TEST_OUTPUT_DIR/trustless-rgb-asset-to-ark-asset-ark-claim-pubkey.json"
   ark_contract_pubkey_for_wallet "$BRIDGE_TEST_ARK_TAKER_WALLET" "$pubkey_file"
-  ark_claim_pubkey="$(jq -er .ark_claim_pubkey "$pubkey_file")"
+  ark_claim_pubkey="$(contract_field "$pubkey_file" ark_claim_pubkey)"
 
   preimage="$(random_preimage_hex)"
   payment_hash="$(sha256_hex32 "$preimage")"
@@ -755,7 +755,7 @@ run_trustless_rgb_asset_to_ark_asset() {
         asset_amount:$swap[0].asset_amount,
         ark_claim_pubkey:$swap[0].ark_claim_pubkey,
         ark_refund_pubkey:$swap[0].ark_refund_pubkey,
-        ark_refund_time:($swap[0].ark_refund_time|tostring),
+        ark_refund_time:($swap[0].ark_refund_time|tonumber),
         ark_vtxo_outpoint:$ark_vtxo_outpoint,
         preimage:$preimage,
         destination_address:$destination_address,
@@ -782,8 +782,8 @@ run_trustless_rgb_asset_to_ark_asset() {
   ark_cli "$BRIDGE_TEST_ARK_TAKER_WALLET" balance | save_json "$taker_balance_file" || true
 
   contract_funded="$(json_bool '.ark_vtxo_outpoint != null' "$fund_file")"
-  contract_claimed="$(json_bool '.ark_claim_txid != null and .decoded_witness_preimage != null' "$claim_file")"
-  if [ "$(sha256_hex32 "$(jq -er .decoded_witness_preimage "$claim_file")")" = "$payment_hash" ]; then
+  contract_claimed="$(json_bool '(.ark_claim_txid // .stdout.ark_claim_txid // .ark_contract_result.stdout.ark_claim_txid) != null and (.decoded_witness_preimage // .stdout.decoded_witness_preimage // .ark_contract_result.stdout.decoded_witness_preimage) != null' "$claim_file")"
+  if [ "$(sha256_hex32 "$(contract_field "$claim_file" decoded_witness_preimage)")" = "$payment_hash" ]; then
     preimage_verified=true
   else
     preimage_verified=false
@@ -829,7 +829,7 @@ run_trustless_rgb_asset_to_ark_asset() {
 run_trustless_ark_asset_to_rgb_asset() {
   local invoice_file bolt11 payment_hash ln_expiry request_file swap_file swap_id status
   local rgb_receiver_pubkey pubkey_file ark_refund_pubkey now ark_refund_time fund_request_file fund_file outpoint
-  local verify_file pay_file pay_pid asset_send_file asset_payment_hash claim_file preimage provider_receive_file provider_recipient
+  local verify_file pay_file pay_pid asset_send_file asset_payment_hash claim_file claimed_invoice_file preimage provider_receive_file provider_recipient
   local contract_claim_file contract_funded contract_claimed preimage_verified ln_or_rgb_settled no_preimage_before_claim
 
   require_trustless_commands
@@ -843,15 +843,15 @@ run_trustless_ark_asset_to_rgb_asset() {
     --argjson asset_amount "$BRIDGE_TEST_RGB_ASSET_AMOUNT" \
     --arg recipient_pubkey "$rgb_receiver_pubkey" \
     '{amt_msat:$amt_msat,expiry_sec:900,asset_id:$asset_id,asset_amount:$asset_amount,recipient_pubkey:$recipient_pubkey}')" |
-    save_json "$invoice_file"
+  save_json "$invoice_file"
   bolt11="$(jq -er .invoice "$invoice_file")"
   payment_hash="$(jq -er .payment_hash "$invoice_file")"
-  ln_expiry="$(jq -er '(.timestamp + .expiry_sec) | floor' "$invoice_file")"
+  ln_expiry="$(jq -er '((.timestamp // .created_at) + (.expiry_sec // 900)) | floor' "$invoice_file")"
 
   log "trustless-ark-asset-to-rgb-asset: creating payer refund key"
   pubkey_file="$BRIDGE_TEST_OUTPUT_DIR/trustless-ark-asset-to-rgb-asset-ark-refund-pubkey.json"
   ark_contract_pubkey_for_wallet "$BRIDGE_TEST_ARK_TAKER_WALLET" "$pubkey_file"
-  ark_refund_pubkey="$(jq -er .ark_refund_pubkey "$pubkey_file")"
+  ark_refund_pubkey="$(contract_field "$pubkey_file" ark_refund_pubkey)"
   now="$(date +%s)"
   ark_refund_time="$((ln_expiry + ${BRIDGE_TEST_TRUSTLESS_ARK_TO_RGB_REFUND_AFTER_EXPIRY_SEC:-600}))"
   [ "$now" -lt "$ln_expiry" ] ||
@@ -899,7 +899,7 @@ run_trustless_ark_asset_to_rgb_asset() {
         asset_amount:$swap[0].asset_amount,
         ark_claim_pubkey:$swap[0].ark_claim_pubkey,
         ark_refund_pubkey:$swap[0].ark_refund_pubkey,
-        ark_refund_time:($swap[0].ark_refund_time|tostring),
+        ark_refund_time:($swap[0].ark_refund_time|tonumber),
         wallet_private_key_hex:$wallet_private_key_hex
       }' >"$fund_request_file"
   fund_file="$BRIDGE_TEST_OUTPUT_DIR/trustless-ark-asset-to-rgb-asset-contract-fund.json"
@@ -972,8 +972,9 @@ run_trustless_ark_asset_to_rgb_asset() {
   else
     preimage_verified=false
   fi
+  claimed_invoice_file="$BRIDGE_TEST_OUTPUT_DIR/trustless-ark-asset-to-rgb-asset-claimed-rgb-asset-invoice.json"
   if jq -e '.status == "ln_paid"' "$pay_file" >/dev/null &&
-    jq -e '.status == "ln_claimed"' "$claim_file" >/dev/null; then
+    jq -e '.status == "ln_claimed"' "$claimed_invoice_file" >/dev/null; then
     ln_or_rgb_settled=true
   else
     ln_or_rgb_settled=false

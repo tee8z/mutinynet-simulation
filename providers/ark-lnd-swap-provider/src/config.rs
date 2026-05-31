@@ -44,8 +44,6 @@ pub struct ArkContractSettings {
     pub network: String,
     pub private_key_hex: Option<String>,
     pub vtxo_sats: i64,
-    pub unilateral_claim_delay_blocks: i64,
-    pub unilateral_refund_delay_blocks: i64,
 }
 
 #[derive(Clone, Debug)]
@@ -97,14 +95,6 @@ impl Settings {
                 network: env_string("ARK_LND_PROVIDER_ARK_NETWORK", "mutinynet"),
                 private_key_hex: env::var("ARK_LND_PROVIDER_ARK_PRIVATE_KEY_HEX").ok(),
                 vtxo_sats: env_i64("ARK_LND_PROVIDER_ARK_CONTRACT_VTXO_SATS", 1000),
-                unilateral_claim_delay_blocks: env_i64(
-                    "ARK_LND_PROVIDER_ARK_CONTRACT_CLAIM_DELAY_BLOCKS",
-                    1,
-                ),
-                unilateral_refund_delay_blocks: env_i64(
-                    "ARK_LND_PROVIDER_ARK_CONTRACT_REFUND_DELAY_BLOCKS",
-                    1,
-                ),
             },
             watcher: WatcherSettings {
                 enabled: env_bool("ARK_LND_PROVIDER_WATCHER_ENABLED", true),
