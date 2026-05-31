@@ -1,0 +1,74 @@
+{
+  "artifact": "lightning-ark-bridge-baseline-20260530T223914Z",
+  "classification": "baseline_cli_coordinated_non_trustless",
+  "source_ignored_directory": "state/tests/lightning-ark-bridge-all-20260530T223914Z/",
+  "test_driver": "scripts/test-lightning-ark-bridge.sh",
+  "mode": "all",
+  "observed_utc_window": {
+    "first_created_at": "2026-05-30T22:39:16Z",
+    "last_updated_at": "2026-05-30T22:39:28Z"
+  },
+  "public_config": {
+    "rgb_payer_node": "node1",
+    "rgb_maker_node": "node4",
+    "rgb_receiver_node": "node1",
+    "lnd_rgb_node": "lnd1",
+    "lnd_provider_node": "lnd2",
+    "ark_taker_wallet_label": "taker",
+    "rgb_asset_amount": 10,
+    "ark_asset_amount": 100,
+    "ln_to_ark_sats": 6000,
+    "ark_to_rgb_sats": 1000,
+    "rgb_asset_keysend_msat": 3000000,
+    "fee_limit_sat": 10,
+    "rgb_asset_id": "rgb:j~dKPSFu-NIzm2WJ-CPzFKfO-ZnEk_3d-Rbq7fnY-v95~MTY",
+    "ark_asset_id": "0c9109c8ab004368a8c87f7fe88540b6335cb637eb36be5e1e9203d6858ec0b10100"
+  },
+  "provider_health": {
+    "ok": true,
+    "database": true,
+    "lnd_rpcserver": "127.0.0.1:11042",
+    "ark_wallet_dir": "<redacted>"
+  },
+  "rgb_asset_to_ark_asset": {
+    "swap_id": "3e67e5b4-7f27-449a-bcfe-2d6b45d1690b",
+    "kind": "ln_to_ark",
+    "amount_sat": 6000,
+    "ark_asset_amount": 100,
+    "rgb_asset_amount": 10,
+    "provider_status_progression": [
+      "ln_hold_invoice_created",
+      "ln_settled"
+    ],
+    "lnd_invoice_state_progression": [
+      "ACCEPTED",
+      "SETTLED"
+    ],
+    "rgb_payment_status": "Succeeded",
+    "payment_hash": "af2cb14d6ce6ab9ad23881b0805e1a7921755fc3862e4008792fe94b7c0931ed"
+  },
+  "ark_asset_to_rgb_asset": {
+    "swap_id": "9b3a2ab7-c373-4b78-878a-dc3d3cb5f362",
+    "kind": "ark_to_ln",
+    "amount_sat": 1000,
+    "ark_asset_amount": 100,
+    "rgb_asset_amount": 10,
+    "provider_status_progression": [
+      "ln_invoice_registered",
+      "ln_paid"
+    ],
+    "rgb_asset_invoice_status_progression": [
+      "invoice_created",
+      "ln_accepted",
+      "ln_claimed"
+    ],
+    "rgb_delivery_payment_status": "Succeeded",
+    "payment_hash": "6c66b62b3288883954f5a2f1ec426171b000d958fcf6e8900f487b107e607b47",
+    "rgb_delivery_payment_hash": "5ee5fe80b76728284c3694e49c684bf0332ba778f43577765c3a60c41f646309"
+  },
+  "redactions": [
+    "wallet directories",
+    "passwords",
+    "raw route output"
+  ]
+}

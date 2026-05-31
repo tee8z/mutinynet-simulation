@@ -1,0 +1,18 @@
+.env
+.env.*
+!.env.example
+.direnv/
+.agents/
+.codex/
+.sccache/
+data/
+logs/
+run/
+state/
+result
+result-*
+images/Screenshot From*.png
+target/
+providers/*/target/
+__pycache__/
+.DS_Store

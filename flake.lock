@@ -1,0 +1,63 @@
+{
+  "nodes": {
+    "blockstreamElectrsSrc": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1777325693,
+        "narHash": "sha256-jFOEQwFDRVghCDFu0mybSLeTk9zWJSQW9clWFMkCa5A=",
+        "owner": "Blockstream",
+        "repo": "electrs",
+        "rev": "503b740cce2133fd07f451cbe93249a4e092b300",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Blockstream",
+        "ref": "new-index",
+        "repo": "electrs",
+        "type": "github"
+      }
+    },
+    "lnd-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1780084728,
+        "narHash": "sha256-xhuGqZNAxOMYKB4+TLVX7wntMbFMZk6I5fWBkakH5rU=",
+        "owner": "tee8z",
+        "repo": "lnd",
+        "rev": "c42172b6b7d1b08e30c61c21291f6d305f2a0d81",
+        "type": "github"
+      },
+      "original": {
+        "owner": "tee8z",
+        "ref": "feat/custom-signet-block-time",
+        "repo": "lnd",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1779560665,
+        "narHash": "sha256-tpyBcxPpcQb8ukyNF7DoCwfSY3VPsxHoYwj00Cayv5o=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "64c08a7ca051951c8eae34e3e3cb1e202fe36786",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "blockstreamElectrsSrc": "blockstreamElectrsSrc",
+        "lnd-src": "lnd-src",
+        "nixpkgs": "nixpkgs"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
