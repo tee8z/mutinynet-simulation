@@ -69,6 +69,9 @@ preflight:
   Ark asset  0c9109c8ab...c0b10100        source ark_balance
 ```
 
+Ark asset used in the baseline and latest UI run:
+`0c9109c8ab004368a8c87f7fe88540b6335cb637eb36be5e1e9203d6858ec0b10100`
+
 The table below is compact. The linked proof transcript keeps full identifiers.
 
 | Flow | Swap | Input | Output | Final state |
