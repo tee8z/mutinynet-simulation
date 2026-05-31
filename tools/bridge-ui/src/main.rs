@@ -176,6 +176,9 @@ async fn main() -> anyhow::Result<()> {
         .merge(dashboard::dashboard_routes())
         .route("/health", get(health))
         .route("/api/cluster", get(cluster))
+        .route("/api/p2p", get(p2p_status))
+        .route("/api/p2p/start", post(p2p_start))
+        .route("/api/p2p/stop", post(p2p_stop))
         .route("/api/preflight", get(preflight))
         .route("/api/flows", get(list_flows))
         .route("/api/flows/start/{mode}", post(start_flow))
@@ -308,18 +311,23 @@ async fn run_harness(
         .cloned()
         .ok_or_else(|| anyhow::anyhow!("run not found"))?;
 
-    let script = state
-        .sim_dir
-        .join("scripts")
-        .join("test-lightning-ark-bridge.sh");
+    let script_name = if run.mode == "setup-assets" {
+        "setup-bridge-assets.sh"
+    } else {
+        "test-lightning-ark-bridge.sh"
+    };
+    let script = state.sim_dir.join("scripts").join(script_name);
     let mut command = Command::new(script);
     command
-        .arg(&run.mode)
         .current_dir(&state.sim_dir)
         .env("MUTINY_SIM_DIR", &state.sim_dir)
         .env("BRIDGE_TEST_OUTPUT_DIR", &run.output_dir)
+        .env("BRIDGE_SETUP_OUTPUT_DIR", &run.output_dir)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    if run.mode != "setup-assets" {
+        command.arg(&run.mode);
+    }
 
     if let Some(value) = request.rgb_asset_id {
         command.env("BRIDGE_TEST_RGB_ASSET_ID", value);
@@ -347,6 +355,17 @@ async fn run_harness(
     }
     if let Some(value) = request.wait_timeout_sec {
         command.env("BRIDGE_TEST_WAIT_TIMEOUT_SEC", value.to_string());
+    }
+    if is_trustless_mode(&run.mode)
+        && env::var("BRIDGE_TEST_ARK_TAKER_PRIVATE_KEY_HEX")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .is_none()
+    {
+        command.env(
+            "BRIDGE_TEST_ARK_TAKER_PRIVATE_KEY_HEX",
+            derive_taker_private_key(&state).await?,
+        );
     }
 
     let mut child = command.spawn()?;
@@ -444,16 +463,67 @@ async fn cluster(State(state): State<AppState>) -> Json<ClusterSnapshot> {
     })
 }
 
+async fn p2p_status(State(state): State<AppState>) -> Json<CommandSnapshot> {
+    let mut snapshot = run_cluster_command_timeout(
+        &state.sim_dir,
+        "bitcoind_p2p",
+        "scripts/bitcoind-p2p-port-forward.sh status",
+        Duration::from_secs(10),
+    )
+    .await;
+    if snapshot
+        .stdout
+        .as_str()
+        .is_some_and(|text| text.contains(" closed"))
+    {
+        snapshot.ok = false;
+    }
+    Json(snapshot)
+}
+
+async fn p2p_start(State(state): State<AppState>) -> Json<CommandSnapshot> {
+    Json(
+        run_cluster_command_timeout(
+            &state.sim_dir,
+            "bitcoind_p2p_start",
+            "scripts/bitcoind-p2p-port-forward.sh start",
+            Duration::from_secs(45),
+        )
+        .await,
+    )
+}
+
+async fn p2p_stop(State(state): State<AppState>) -> Json<CommandSnapshot> {
+    Json(
+        run_cluster_command_timeout(
+            &state.sim_dir,
+            "bitcoind_p2p_stop",
+            "scripts/bitcoind-p2p-port-forward.sh stop",
+            Duration::from_secs(15),
+        )
+        .await,
+    )
+}
+
 async fn run_cluster_command(
     sim_dir: &FsPath,
     name: &'static str,
     shell_command: &'static str,
 ) -> CommandSnapshot {
+    run_cluster_command_timeout(sim_dir, name, shell_command, Duration::from_secs(10)).await
+}
+
+async fn run_cluster_command_timeout(
+    sim_dir: &FsPath,
+    name: &'static str,
+    shell_command: &'static str,
+    command_timeout: Duration,
+) -> CommandSnapshot {
     let script = format!(
         "source scripts/lib.sh >/dev/null; export PATH=\"$SIM_DIR/result/bin:$PATH\"; {shell_command}"
     );
     let output = timeout(
-        Duration::from_secs(10),
+        command_timeout,
         Command::new("bash")
             .arg("-lc")
             .arg(script)
@@ -500,6 +570,10 @@ async fn apply_default_assets(
     mode: &str,
     request: &mut StartFlowRequest,
 ) -> anyhow::Result<()> {
+    if mode == "setup-assets" {
+        return Ok(());
+    }
+
     if request
         .rgb_asset_id
         .as_deref()
@@ -669,6 +743,47 @@ async fn run_raw_shell_json(
     Ok(serde_json::from_str(stdout.trim())?)
 }
 
+async fn run_raw_shell_text(
+    sim_dir: &FsPath,
+    shell_command: &str,
+    command_timeout: Duration,
+) -> anyhow::Result<String> {
+    let script = format!(
+        "source scripts/lib.sh >/dev/null; export PATH=\"$SIM_DIR/result/bin:$PATH\"; {shell_command}"
+    );
+    let output = timeout(
+        command_timeout,
+        Command::new("bash")
+            .arg("-lc")
+            .arg(script)
+            .current_dir(sim_dir)
+            .output(),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("command timed out: {shell_command}"))??;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        anyhow::bail!("{shell_command} failed: {stderr}");
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+async fn derive_taker_private_key(state: &AppState) -> anyhow::Result<String> {
+    let key = run_raw_shell_text(
+        &state.sim_dir,
+        "wallet=\"${BRIDGE_TEST_ARK_TAKER_WALLET:-taker}\"; ark_cli \"$wallet\" dump-privkey --password \"$ARK_CLI_PASSWORD\" | grep -Eo '[0-9a-fA-F]{64}' | head -n 1",
+        Duration::from_secs(10),
+    )
+    .await?;
+    if key.len() == 64 && key.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        Ok(key)
+    } else {
+        anyhow::bail!("could not derive taker wallet private key")
+    }
+}
+
 fn value_as_u64(value: &Value) -> Option<u64> {
     value
         .as_u64()
@@ -740,20 +855,30 @@ struct StepDef {
 
 fn build_timeline(mode: &str, output_dir: &FsPath) -> Vec<TimelineStep> {
     let mut defs: Vec<StepDef> = Vec::new();
+    if mode == "setup-assets" {
+        defs.extend_from_slice(SETUP_STEPS);
+    }
     if mode == "all" || mode == "rgb-asset-to-ark-asset" {
         defs.extend_from_slice(RGB_TO_ARK_STEPS);
     }
     if mode == "all" || mode == "ark-asset-to-rgb-asset" {
         defs.extend_from_slice(ARK_TO_RGB_STEPS);
     }
+    if mode == "trustless-all" || mode == "trustless-rgb-asset-to-ark-asset" {
+        defs.extend_from_slice(TRUSTLESS_RGB_TO_ARK_STEPS);
+    }
+    if mode == "trustless-all" || mode == "trustless-ark-asset-to-rgb-asset" {
+        defs.extend_from_slice(TRUSTLESS_ARK_TO_RGB_STEPS);
+    }
 
     defs.into_iter()
         .map(|def| {
             let path = output_dir.join(def.file);
-            let data = fs::read_to_string(&path)
-                .ok()
-                .and_then(|text| serde_json::from_str::<Value>(&text).ok())
-                .map(|value| redact_value(&value));
+            let data = fs::read_to_string(&path).ok().map(|text| {
+                serde_json::from_str::<Value>(&text)
+                    .map(|value| redact_value(&value))
+                    .unwrap_or_else(|_| Value::String(redact_local_paths(&text)))
+            });
             let state = match data.as_ref() {
                 Some(value) if timeline_value_failed(value) => "failed",
                 Some(_) => "done",
@@ -943,15 +1068,161 @@ const ARK_TO_RGB_STEPS: &[StepDef] = &[
     },
 ];
 
+const SETUP_STEPS: &[StepDef] = &[
+    StepDef {
+        flow: "setup",
+        step: "rgb_issue",
+        label: "RGB asset is available",
+        file: "rgb-issue.json",
+    },
+    StepDef {
+        flow: "setup",
+        step: "market_maker_channels",
+        label: "RGB market-maker channels are created",
+        file: "market-maker-setup.log",
+    },
+    StepDef {
+        flow: "setup",
+        step: "ark_issue",
+        label: "Ark asset is available",
+        file: "ark-issue.json",
+    },
+    StepDef {
+        flow: "setup",
+        step: "ark_maker_balance",
+        label: "Ark maker wallet has inventory",
+        file: "ark-maker-balance.json",
+    },
+    StepDef {
+        flow: "setup",
+        step: "ark_taker_balance",
+        label: "Ark taker wallet has inventory",
+        file: "ark-taker-balance.json",
+    },
+    StepDef {
+        flow: "setup",
+        step: "summary",
+        label: "Setup summary is written",
+        file: "setup-summary.json",
+    },
+];
+
+const TRUSTLESS_RGB_TO_ARK_STEPS: &[StepDef] = &[
+    StepDef {
+        flow: "trustless_rgb_asset_to_ark_asset",
+        step: "provider_health",
+        label: "provider is reachable",
+        file: "provider-health.json",
+    },
+    StepDef {
+        flow: "trustless_rgb_asset_to_ark_asset",
+        step: "contract_template",
+        label: "provider creates hold invoice and Ark VHTLC template",
+        file: "trustless-rgb-asset-to-ark-asset-swap-created.json",
+    },
+    StepDef {
+        flow: "trustless_rgb_asset_to_ark_asset",
+        step: "rgb_payment_sent",
+        label: "RGB asset payment locks the Lightning leg",
+        file: "trustless-rgb-asset-to-ark-asset-rgb-sendpayment.json",
+    },
+    StepDef {
+        flow: "trustless_rgb_asset_to_ark_asset",
+        step: "contract_funded",
+        label: "provider funds Ark VHTLC",
+        file: "trustless-rgb-asset-to-ark-asset-contract-fund.json",
+    },
+    StepDef {
+        flow: "trustless_rgb_asset_to_ark_asset",
+        step: "contract_claimed",
+        label: "taker claims Ark VHTLC",
+        file: "trustless-rgb-asset-to-ark-asset-contract-claim.json",
+    },
+    StepDef {
+        flow: "trustless_rgb_asset_to_ark_asset",
+        step: "claim_observed",
+        label: "provider settles from observed claim preimage",
+        file: "trustless-rgb-asset-to-ark-asset-observe-claim.json",
+    },
+    StepDef {
+        flow: "trustless_rgb_asset_to_ark_asset",
+        step: "summary",
+        label: "proof summary recorded",
+        file: "trustless-rgb-asset-to-ark-asset-proof-summary.json",
+    },
+];
+
+const TRUSTLESS_ARK_TO_RGB_STEPS: &[StepDef] = &[
+    StepDef {
+        flow: "trustless_ark_asset_to_rgb_asset",
+        step: "rgb_invoice",
+        label: "RGB mapped invoice is created",
+        file: "trustless-ark-asset-to-rgb-asset-rgb-invoice.json",
+    },
+    StepDef {
+        flow: "trustless_ark_asset_to_rgb_asset",
+        step: "contract_template",
+        label: "provider creates Ark VHTLC template",
+        file: "trustless-ark-asset-to-rgb-asset-swap-created.json",
+    },
+    StepDef {
+        flow: "trustless_ark_asset_to_rgb_asset",
+        step: "contract_funded",
+        label: "payer funds Ark VHTLC",
+        file: "trustless-ark-asset-to-rgb-asset-contract-fund.json",
+    },
+    StepDef {
+        flow: "trustless_ark_asset_to_rgb_asset",
+        step: "contract_verified",
+        label: "provider verifies funded VHTLC",
+        file: "trustless-ark-asset-to-rgb-asset-contract-verify-funded.json",
+    },
+    StepDef {
+        flow: "trustless_ark_asset_to_rgb_asset",
+        step: "ln_payment",
+        label: "provider pays RGB/LN invoice",
+        file: "trustless-ark-asset-to-rgb-asset-provider-pay.json",
+    },
+    StepDef {
+        flow: "trustless_ark_asset_to_rgb_asset",
+        step: "rgb_claim",
+        label: "RGB maker claims mapped invoice",
+        file: "trustless-ark-asset-to-rgb-asset-rgb-claim.json",
+    },
+    StepDef {
+        flow: "trustless_ark_asset_to_rgb_asset",
+        step: "contract_claimed",
+        label: "provider claims Ark VHTLC",
+        file: "trustless-ark-asset-to-rgb-asset-contract-claim.json",
+    },
+    StepDef {
+        flow: "trustless_ark_asset_to_rgb_asset",
+        step: "summary",
+        label: "proof summary recorded",
+        file: "trustless-ark-asset-to-rgb-asset-proof-summary.json",
+    },
+];
+
 fn normalize_mode(mode: &str) -> Result<String, ApiError> {
     match mode {
+        "setup-assets" => Ok("setup-assets".to_string()),
         "all" => Ok("all".to_string()),
         "rgb-asset-to-ark-asset" | "ln-to-ark" => Ok("rgb-asset-to-ark-asset".to_string()),
         "ark-asset-to-rgb-asset" | "ark-to-ln" => Ok("ark-asset-to-rgb-asset".to_string()),
+        "trustless-all" => Ok("trustless-all".to_string()),
+        "trustless-rgb-asset-to-ark-asset" => Ok("trustless-rgb-asset-to-ark-asset".to_string()),
+        "trustless-ark-asset-to-rgb-asset" => Ok("trustless-ark-asset-to-rgb-asset".to_string()),
         _ => Err(ApiError::bad_request(
-            "mode must be all, rgb-asset-to-ark-asset, or ark-asset-to-rgb-asset",
+            "mode must be setup-assets, all, rgb-asset-to-ark-asset, ark-asset-to-rgb-asset, trustless-all, trustless-rgb-asset-to-ark-asset, or trustless-ark-asset-to-rgb-asset",
         )),
     }
+}
+
+fn is_trustless_mode(mode: &str) -> bool {
+    matches!(
+        mode,
+        "trustless-all" | "trustless-rgb-asset-to-ark-asset" | "trustless-ark-asset-to-rgb-asset"
+    )
 }
 
 fn now_unix() -> u64 {
@@ -976,6 +1247,10 @@ fn redact_value(value: &Value) -> Value {
 }
 
 fn redact_value_with_key(key: &str, value: &Value) -> Value {
+    if is_secret_key(key) {
+        return Value::String("<redacted>".to_string());
+    }
+
     match value {
         Value::Object(map) => Value::Object(
             map.iter()
@@ -1005,11 +1280,27 @@ fn redact_object_key(_parent_key: &str, key: &str) -> String {
 fn redact_string(key: &str, text: &str) -> String {
     let lower = key.to_ascii_lowercase();
 
+    if is_secret_key(&lower) {
+        return "<redacted>".to_string();
+    }
+
     if lower.contains("wallet_dir") || lower.contains("output_dir") || looks_like_local_path(text) {
         return redact_local_paths(text);
     }
 
     redact_local_paths(text)
+}
+
+fn is_secret_key(key: &str) -> bool {
+    let lower = key.to_ascii_lowercase();
+    lower == "preimage"
+        || lower.contains("wallet_private_key")
+        || lower.contains("private_key")
+        || lower.contains("privatekey")
+        || lower.contains("privkey")
+        || lower.contains("password")
+        || lower.contains("macaroon")
+        || lower.contains("secret")
 }
 
 fn redact_local_paths(text: &str) -> String {

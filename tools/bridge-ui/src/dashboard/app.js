@@ -112,6 +112,44 @@ async function refreshPreflight() {
   }
 }
 
+function renderCommandStatus(node, snapshot) {
+  const cls = snapshot.ok ? "ok" : "fail";
+  const detail = snapshot.stderr || compactJson(snapshot.stdout);
+  node.innerHTML = `
+    <div class="status-card ${cls}">
+      <strong>${escapeHtml(snapshot.name || "command")}</strong>
+      <div class="meta">${snapshot.ok ? "ready" : "not ready"}</div>
+      ${detail ? `<pre>${escapeHtml(detail)}</pre>` : ""}
+    </div>
+  `;
+}
+
+async function refreshP2p() {
+  const grid = $("p2p-status");
+  if (!grid) return;
+  grid.innerHTML = '<div class="empty">Loading P2P tunnel state...</div>';
+  try {
+    renderCommandStatus(grid, await jsonFetch("/api/p2p"));
+  } catch (error) {
+    grid.innerHTML = `<div class="empty">P2P status failed: ${escapeHtml(error.message)}</div>`;
+  }
+}
+
+async function runP2pAction(action) {
+  const grid = $("p2p-status");
+  flash(`${action === "start" ? "Starting" : "Stopping"} P2P tunnel...`);
+  if (grid) grid.innerHTML = '<div class="empty">Updating P2P tunnel...</div>';
+  try {
+    const snapshot = await jsonFetch(`/api/p2p/${action}`, { method: "POST" });
+    if (grid) renderCommandStatus(grid, snapshot);
+    flash(`P2P tunnel ${action} complete`);
+    await refreshCluster();
+  } catch (error) {
+    flash(error.message, true);
+    await refreshP2p();
+  }
+}
+
 async function startFlow(mode) {
   flash(`Starting ${mode}...`);
   try {
@@ -253,6 +291,12 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  const p2pButton = event.target.closest("[data-p2p-action]");
+  if (p2pButton) {
+    runP2pAction(p2pButton.dataset.p2pAction);
+    return;
+  }
+
   const runButton = event.target.closest("[data-run-id]");
   if (runButton) {
     state.selectedRunId = runButton.dataset.runId;
@@ -263,12 +307,15 @@ document.addEventListener("click", (event) => {
 
 document.addEventListener("DOMContentLoaded", () => {
   $("refresh-cluster")?.addEventListener("click", refreshCluster);
+  $("refresh-p2p")?.addEventListener("click", refreshP2p);
   $("refresh-preflight")?.addEventListener("click", refreshPreflight);
   $("refresh-runs")?.addEventListener("click", refreshRuns);
   refreshCluster();
+  refreshP2p();
   refreshPreflight();
   refreshRuns();
   window.setInterval(refreshCluster, 15000);
+  window.setInterval(refreshP2p, 15000);
   window.setInterval(refreshPreflight, 15000);
   window.setInterval(refreshRuns, 5000);
 });

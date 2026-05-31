@@ -1,21 +1,24 @@
 # Mutinynet RGB / Ark / LND Simulation
 
-This repo proves a mapped-asset bridge on Mutinynet:
+This repo runs a Mutinynet RGB / Ark / LND bridge simulation:
 
-- RGB assets can buy Ark assets.
-- Ark assets can buy RGB assets.
-- RGB, Ark, and LND stay behind their own APIs.
+- RGB assets can buy Ark assets through Lightning settlement.
+- Ark assets can buy RGB assets through Lightning settlement.
+- RGB, Ark, and LND stay behind their protocol APIs.
+- Provider runtime actions use LND gRPC plus Rust Ark gRPC/client code.
+- Simulation bootstrap uses the RGB Lightning node API for RGB asset issuance
+  and `ark` CLI for local Ark wallet setup plus Ark asset issuance.
 
-BTC Lightning is the settlement rail. The current proof is coordinated through
-provider APIs and CLIs; the trustless Ark VTXO contract path is designed but not
-yet proven by the harness.
+BTC Lightning is the settlement rail. The committed public transcript records a
+completed mapped-asset run. Trustless Ark VTXO modes write local artifacts under
+`state/tests/trustless-ark-swap-*`.
 
-## Proven Baseline
+## Public Transcript
 
 Public transcript:
-[docs/proofs/lightning-ark-bridge-baseline-20260530T223914Z/](docs/proofs/lightning-ark-bridge-baseline-20260530T223914Z/)
+[2026-05-30 mapped bridge run](docs/proofs/lightning-ark-bridge-baseline-20260530T223914Z/)
 
-Baseline source run:
+Source run:
 `state/tests/lightning-ark-bridge-all-20260530T223914Z/`
 
 State paths stay ignored with local runtime state. The committed proof keeps the
@@ -57,7 +60,7 @@ node4 / rmm
 node1
 ```
 
-Latest UI example:
+UI example:
 
 ```text
 run id:   1780188385-3327b727-9e6a-435c-969c-f4416a797b73
@@ -69,7 +72,7 @@ preflight:
   Ark asset  0c9109c8ab...c0b10100        source ark_balance
 ```
 
-Ark asset used in the baseline and latest UI run:
+Ark asset used in the public transcript and UI example:
 `0c9109c8ab004368a8c87f7fe88540b6335cb637eb36be5e1e9203d6858ec0b10100`
 
 The table below is compact. The linked proof transcript keeps full identifiers.
@@ -145,11 +148,11 @@ The provider maps Ark-side asset movement to Lightning invoices controlled by
 `lnd2`. RGB asset preparation, delivery, and claiming stay in the RGB Lightning
 node APIs.
 
-| Piece | Current proof |
+| Piece | Runtime behavior |
 | --- | --- |
 | RGB side | RGB Lightning node APIs create, prepare, send, deliver, claim, and report asset payment state. |
-| LND side | Provider drives hold invoices, invoice payment, and settlement through `lncli`. |
-| Ark side | Provider and harness coordinate `ark` CLI sends. This is not yet a contract-bound VTXO swap. |
+| LND side | Provider drives hold invoices, invoice payment, and settlement through LND gRPC. |
+| Ark side | Provider uses Rust Ark gRPC/client code for Ark sends and contract VTXOs; simulation bootstrap uses `ark` CLI for local Ark wallet setup and Ark asset issuance. |
 
 ## Run The UI
 
@@ -166,14 +169,14 @@ From a plain shell:
 nix run .#bridge-ui
 ```
 
-If the shell was already open before the aliases were added:
+If `sim-bridge-ui` is not on `PATH` in an existing shell:
 
 ```bash
 source ./alias.sh
 sim-bridge-ui
 ```
 
-Then open the UI. The JSON API is still available for scripts:
+Then open the UI. The JSON API is available for scripts:
 
 ```bash
 xdg-open http://127.0.0.1:8091/
@@ -191,19 +194,20 @@ Repeated local runs move Lightning liquidity. If RGB -> Ark fails with
 `insufficient bandwidth`, pay a normal invoice from `lnd2` to `lnd1`, then run
 `all` again.
 
-## Boundary
+## Runtime Boundary
 
-| Area | Current proof | Trustless target |
-| --- | --- | --- |
-| LND access | `lncli` adapter | direct LND gRPC client |
-| Ark access | `ark` CLI adapter | direct Ark gRPC/client SDK path |
-| Atomicity | coordinated send and settle | Ark VTXO contract bound to the RGB/LN preimage |
-| Proof | baseline mapped-asset transcript | success and refund artifacts for both directions |
+| Area | Implementation |
+| --- | --- |
+| LND access | Direct LND gRPC client. |
+| Ark provider access | Rust Ark gRPC/client provider path. |
+| Simulation bootstrap | RGB Lightning node API issues RGB assets; `ark` CLI initializes local Ark wallets and issues/reissues demo Ark assets. |
+| Swap modes | Mapped-asset flows and Ark VHTLC contract flows are available from the harness. |
+| Proof artifacts | Public mapped-asset transcript under `docs/proofs/`; trustless mode artifacts under `state/tests/trustless-ark-swap-*`. |
 
-The trustless design is captured in
-[docs/trustless-ark-swap.md](docs/trustless-ark-swap.md). It requires Ark asset
-VTXOs with claim/refund paths, shared preimage checks, watcher evidence, and a
-fresh harness run before the README can claim a trustless swap.
+The Ark VTXO flow is documented in
+[docs/trustless-ark-swap.md](docs/trustless-ark-swap.md). The local harness
+supports `trustless-rgb-asset-to-ark-asset`,
+`trustless-ark-asset-to-rgb-asset`, and `trustless-all`.
 
 ## Repo Map
 
@@ -211,7 +215,7 @@ fresh harness run before the README can claim a trustless swap.
 | --- | --- |
 | [USAGE.md](USAGE.md) | setup, flake commands, configuration |
 | [docs/proofs/](docs/proofs/) | public proof artifacts |
-| [docs/trustless-ark-swap.md](docs/trustless-ark-swap.md) | Ark contract-bound swap design |
+| [docs/trustless-ark-swap.md](docs/trustless-ark-swap.md) | Ark contract-bound swap implementation |
 | [scripts/](scripts/) | cluster lifecycle and bridge harness |
 | [providers/ark-lnd-swap-provider/](providers/ark-lnd-swap-provider/) | Ark/LND coordinator |
 | [tools/bridge-ui/](tools/bridge-ui/) | Maud-rendered control plane for running bridge flows |
@@ -234,8 +238,8 @@ fresh harness run before the README can claim a trustless swap.
         choose in -> quote -> pay -> receipt
 ```
 
-- Implement the Ark contract-bound VTXO path and rerun the proof harness.
-- Replace CLI adapters with LND and Ark gRPC/protobuf clients.
+- Validate the Ark contract-bound VTXO path with a fresh reviewed proof run,
+  including timeout/refund cases.
 - Add a [Taproot Assets](https://github.com/lightninglabs/taproot-assets)
   example that pays to and from Ark and RGB assets.
 - Add quoting for inventory, rates, routes, fees, expiries, and min/max amounts.

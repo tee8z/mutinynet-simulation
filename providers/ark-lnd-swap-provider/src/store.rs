@@ -31,12 +31,24 @@ pub struct NewLnToArkSwap {
     pub id: String,
     pub amount_sat: i64,
     pub preimage_hash: String,
+    pub preimage_hash_sha256: Option<String>,
+    pub preimage_hash_hash160: Option<String>,
     pub preimage: Option<String>,
+    pub preimage_source: Option<String>,
     pub bolt11: String,
     pub asset_id: Option<String>,
     pub asset_amount: Option<String>,
     pub ark_wallet_dir: Option<String>,
     pub ark_recipient: Option<String>,
+    pub ark_contract_address: Option<String>,
+    pub ark_contract_script: Option<String>,
+    pub ark_tap_tree: Option<String>,
+    pub ark_vtxo_outpoint: Option<String>,
+    pub ark_claim_pubkey: Option<String>,
+    pub ark_refund_pubkey: Option<String>,
+    pub ark_refund_time: Option<i64>,
+    pub ln_expiry: Option<i64>,
+    pub ark_contract_result: Option<CommandResult>,
     pub ln_result: CommandResult,
     pub metadata: Option<Value>,
 }
@@ -45,10 +57,22 @@ pub struct NewArkToLnSwap {
     pub id: String,
     pub amount_sat: Option<i64>,
     pub preimage_hash: Option<String>,
+    pub preimage_hash_sha256: Option<String>,
+    pub preimage_hash_hash160: Option<String>,
+    pub preimage_source: Option<String>,
     pub bolt11: String,
     pub asset_id: Option<String>,
     pub asset_amount: Option<String>,
     pub ark_wallet_dir: Option<String>,
+    pub ark_contract_address: Option<String>,
+    pub ark_contract_script: Option<String>,
+    pub ark_tap_tree: Option<String>,
+    pub ark_vtxo_outpoint: Option<String>,
+    pub ark_claim_pubkey: Option<String>,
+    pub ark_refund_pubkey: Option<String>,
+    pub ark_refund_time: Option<i64>,
+    pub ln_expiry: Option<i64>,
+    pub ark_contract_result: Option<CommandResult>,
     pub ln_result: CommandResult,
     pub metadata: Option<Value>,
 }
@@ -113,9 +137,16 @@ enum WriteCommand {
         result: CommandResult,
         respond_to: oneshot::Sender<StoreResult<SwapRow>>,
     },
+    UpdateContractState {
+        id: String,
+        status: String,
+        result: CommandResult,
+        respond_to: oneshot::Sender<StoreResult<SwapRow>>,
+    },
     UpdatePreimage {
         id: String,
         preimage: String,
+        source: String,
         respond_to: oneshot::Sender<StoreResult<SwapRow>>,
     },
     UpdateLastError {
@@ -189,7 +220,10 @@ impl SwapStore {
                 'ln_accepted',
                 'ln_payment_started',
                 'ark_sent',
-                'ln_invoice_registered'
+                'ln_invoice_registered',
+                'ark_contract_template_created',
+                'ark_contract_funded',
+                'ark_contract_claimed'
             )
             ORDER BY created_at ASC
             LIMIT 100
@@ -243,10 +277,33 @@ impl SwapStore {
         .await
     }
 
-    pub async fn update_preimage(&self, id: String, preimage: String) -> StoreResult<SwapRow> {
+    pub async fn update_contract_state(
+        &self,
+        id: String,
+        status: impl Into<String>,
+        result: CommandResult,
+    ) -> StoreResult<SwapRow> {
+        let status = status.into();
+        self.send_write(|respond_to| WriteCommand::UpdateContractState {
+            id,
+            status,
+            result,
+            respond_to,
+        })
+        .await
+    }
+
+    pub async fn update_preimage(
+        &self,
+        id: String,
+        preimage: String,
+        source: impl Into<String>,
+    ) -> StoreResult<SwapRow> {
+        let source = source.into();
         self.send_write(|respond_to| WriteCommand::UpdatePreimage {
             id,
             preimage,
+            source,
             respond_to,
         })
         .await
@@ -306,12 +363,21 @@ async fn write_loop(pool: SqlitePool, mut receiver: mpsc::Receiver<WriteCommand>
                 let _ =
                     respond_to.send(update_state(&pool, &id, &status, "ark_result", &result).await);
             }
+            WriteCommand::UpdateContractState {
+                id,
+                status,
+                result,
+                respond_to,
+            } => {
+                let _ = respond_to.send(update_contract_state(&pool, &id, &status, &result).await);
+            }
             WriteCommand::UpdatePreimage {
                 id,
                 preimage,
+                source,
                 respond_to,
             } => {
-                let _ = respond_to.send(update_preimage(&pool, &id, &preimage).await);
+                let _ = respond_to.send(update_preimage(&pool, &id, &preimage, &source).await);
             }
             WriteCommand::UpdateLastError {
                 id,
@@ -327,27 +393,51 @@ async fn write_loop(pool: SqlitePool, mut receiver: mpsc::Receiver<WriteCommand>
 async fn insert_ln_to_ark(pool: &SqlitePool, record: NewLnToArkSwap) -> StoreResult<SwapRow> {
     let now = now_unix();
     let ln_result = serde_json::to_string(&record.ln_result)?;
+    let ark_contract_result = record
+        .ark_contract_result
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()?;
     let metadata = record.metadata.map(|value| value.to_string());
 
     sqlx::query(
         r#"
         INSERT INTO swaps (
-            id, kind, status, amount_sat, preimage_hash, preimage, bolt11,
+            id, kind, status, amount_sat, preimage_hash, preimage_hash_sha256,
+            preimage_hash_hash160, preimage, preimage_source, bolt11,
             asset_id, asset_amount, ark_wallet_dir, ark_recipient,
+            ark_contract_address, ark_contract_script, ark_tap_tree,
+            ark_vtxo_outpoint, ark_claim_pubkey, ark_refund_pubkey,
+            ark_refund_time, ln_expiry, ark_contract_result,
             ln_result, metadata, created_at, updated_at
         )
-        VALUES (?, 'ln_to_ark', 'ln_hold_invoice_created', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (
+            ?, 'ln_to_ark', 'ln_hold_invoice_created', ?, ?, ?, ?, ?, ?, ?,
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        )
         "#,
     )
     .bind(&record.id)
     .bind(record.amount_sat)
     .bind(&record.preimage_hash)
+    .bind(record.preimage_hash_sha256.as_deref())
+    .bind(record.preimage_hash_hash160.as_deref())
     .bind(record.preimage.as_deref())
+    .bind(record.preimage_source.as_deref())
     .bind(&record.bolt11)
     .bind(record.asset_id.as_deref())
     .bind(record.asset_amount.as_deref())
     .bind(record.ark_wallet_dir.as_deref())
     .bind(record.ark_recipient.as_deref())
+    .bind(record.ark_contract_address.as_deref())
+    .bind(record.ark_contract_script.as_deref())
+    .bind(record.ark_tap_tree.as_deref())
+    .bind(record.ark_vtxo_outpoint.as_deref())
+    .bind(record.ark_claim_pubkey.as_deref())
+    .bind(record.ark_refund_pubkey.as_deref())
+    .bind(record.ark_refund_time)
+    .bind(record.ln_expiry)
+    .bind(ark_contract_result.as_deref())
     .bind(&ln_result)
     .bind(metadata.as_deref())
     .bind(now)
@@ -368,25 +458,56 @@ async fn insert_ln_to_ark(pool: &SqlitePool, record: NewLnToArkSwap) -> StoreRes
 async fn insert_ark_to_ln(pool: &SqlitePool, record: NewArkToLnSwap) -> StoreResult<SwapRow> {
     let now = now_unix();
     let ln_result = serde_json::to_string(&record.ln_result)?;
+    let ark_contract_result = record
+        .ark_contract_result
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()?;
     let metadata = record.metadata.map(|value| value.to_string());
+    let status = if record.ark_contract_address.is_some() {
+        "ark_contract_template_created"
+    } else {
+        "ln_invoice_registered"
+    };
 
     sqlx::query(
         r#"
         INSERT INTO swaps (
-            id, kind, status, amount_sat, preimage_hash, bolt11,
-            asset_id, asset_amount, ark_wallet_dir, ln_result, metadata,
+            id, kind, status, amount_sat, preimage_hash, preimage_hash_sha256,
+            preimage_hash_hash160, preimage_source, bolt11,
+            asset_id, asset_amount, ark_wallet_dir,
+            ark_contract_address, ark_contract_script, ark_tap_tree,
+            ark_vtxo_outpoint, ark_claim_pubkey, ark_refund_pubkey,
+            ark_refund_time, ln_expiry, ark_contract_result,
+            ln_result, metadata,
             created_at, updated_at
         )
-        VALUES (?, 'ark_to_ln', 'ln_invoice_registered', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (
+            ?, 'ark_to_ln', ?, ?, ?, ?, ?, ?, ?,
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        )
         "#,
     )
     .bind(&record.id)
+    .bind(status)
     .bind(record.amount_sat)
     .bind(record.preimage_hash.as_deref())
+    .bind(record.preimage_hash_sha256.as_deref())
+    .bind(record.preimage_hash_hash160.as_deref())
+    .bind(record.preimage_source.as_deref())
     .bind(&record.bolt11)
     .bind(record.asset_id.as_deref())
     .bind(record.asset_amount.as_deref())
     .bind(record.ark_wallet_dir.as_deref())
+    .bind(record.ark_contract_address.as_deref())
+    .bind(record.ark_contract_script.as_deref())
+    .bind(record.ark_tap_tree.as_deref())
+    .bind(record.ark_vtxo_outpoint.as_deref())
+    .bind(record.ark_claim_pubkey.as_deref())
+    .bind(record.ark_refund_pubkey.as_deref())
+    .bind(record.ark_refund_time)
+    .bind(record.ln_expiry)
+    .bind(ark_contract_result.as_deref())
     .bind(&ln_result)
     .bind(metadata.as_deref())
     .bind(now)
@@ -394,7 +515,7 @@ async fn insert_ark_to_ln(pool: &SqlitePool, record: NewArkToLnSwap) -> StoreRes
     .execute(pool)
     .await?;
 
-    record_event(pool, &record.id, "ln_invoice_registered", &record.ln_result).await?;
+    record_event(pool, &record.id, status, &record.ln_result).await?;
     load_swap(pool, &record.id).await
 }
 
@@ -442,11 +563,71 @@ async fn update_state(
     load_swap(pool, id).await
 }
 
-async fn update_preimage(pool: &SqlitePool, id: &str, preimage: &str) -> StoreResult<SwapRow> {
+async fn update_contract_state(
+    pool: &SqlitePool,
+    id: &str,
+    status: &str,
+    result: &CommandResult,
+) -> StoreResult<SwapRow> {
+    let result_json = serde_json::to_string(result)?;
+    let stdout = &result.stdout;
     let rows = sqlx::query(
-        "UPDATE swaps SET preimage = ?, last_error = NULL, updated_at = ? WHERE id = ?",
+        r#"
+        UPDATE swaps
+        SET status = ?,
+            ark_contract_result = ?,
+            ark_contract_address = COALESCE(?, ark_contract_address),
+            ark_contract_script = COALESCE(?, ark_contract_script),
+            ark_tap_tree = COALESCE(?, ark_tap_tree),
+            ark_vtxo_outpoint = COALESCE(?, ark_vtxo_outpoint),
+            ark_claim_pubkey = COALESCE(?, ark_claim_pubkey),
+            ark_refund_pubkey = COALESCE(?, ark_refund_pubkey),
+            ark_refund_time = COALESCE(?, ark_refund_time),
+            ark_claim_txid = COALESCE(?, ark_claim_txid),
+            ark_refund_txid = COALESCE(?, ark_refund_txid),
+            preimage_hash_sha256 = COALESCE(?, preimage_hash_sha256),
+            last_error = NULL,
+            updated_at = ?
+        WHERE id = ?
+        "#,
+    )
+    .bind(status)
+    .bind(&result_json)
+    .bind(json_str(stdout, "ark_contract_address"))
+    .bind(json_str(stdout, "ark_contract_script"))
+    .bind(json_str(stdout, "ark_tap_tree"))
+    .bind(json_str(stdout, "ark_vtxo_outpoint"))
+    .bind(json_str(stdout, "ark_claim_pubkey"))
+    .bind(json_str(stdout, "ark_refund_pubkey"))
+    .bind(json_i64(stdout, "ark_refund_time"))
+    .bind(json_str(stdout, "ark_claim_txid"))
+    .bind(json_str(stdout, "ark_refund_txid"))
+    .bind(json_str(stdout, "preimage_hash_sha256"))
+    .bind(now_unix())
+    .bind(id)
+    .execute(pool)
+    .await?
+    .rows_affected();
+
+    if rows == 0 {
+        return Err(StoreError::NotFound(id.to_string()));
+    }
+
+    record_event(pool, id, status, result).await?;
+    load_swap(pool, id).await
+}
+
+async fn update_preimage(
+    pool: &SqlitePool,
+    id: &str,
+    preimage: &str,
+    source: &str,
+) -> StoreResult<SwapRow> {
+    let rows = sqlx::query(
+        "UPDATE swaps SET preimage = ?, preimage_source = ?, last_error = NULL, updated_at = ? WHERE id = ?",
     )
     .bind(preimage)
+    .bind(source)
     .bind(now_unix())
     .bind(id)
     .execute(pool)
@@ -461,7 +642,7 @@ async fn update_preimage(pool: &SqlitePool, id: &str, preimage: &str) -> StoreRe
         pool,
         id,
         "preimage_learned",
-        &serde_json::json!({ "stored": true }),
+        &serde_json::json!({ "stored": true, "source": source }),
     )
     .await?;
     load_swap(pool, id).await
@@ -559,4 +740,18 @@ fn now_unix() -> i64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64
+}
+
+fn json_str(value: &Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .filter(|text| !text.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn json_i64(value: &Value, key: &str) -> Option<i64> {
+    value
+        .get(key)
+        .and_then(|inner| inner.as_i64().or_else(|| inner.as_str()?.parse().ok()))
 }

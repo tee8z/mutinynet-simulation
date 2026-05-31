@@ -114,6 +114,7 @@ sim-faucet-fund() { "$MUTINY_SIM_DIR/scripts/faucet-fund.sh" "$@"; }
 sim-bitcoind-p2p-port-forward() { "$MUTINY_SIM_DIR/scripts/bitcoind-p2p-port-forward.sh" "$@"; }
 sim-bridge-ui() { "$MUTINY_SIM_DIR/scripts/bridge-ui.sh" "$@"; }
 sim-bridge-plan() { "$MUTINY_SIM_DIR/scripts/bridge-plan.sh" "$@"; }
+sim-setup-bridge-assets() { "$MUTINY_SIM_DIR/scripts/setup-bridge-assets.sh" "$@"; }
 sim-setup-market-maker() { "$MUTINY_SIM_DIR/scripts/setup-market-maker.sh" "$@"; }
 sim-test-lightning-ark-bridge() { "$MUTINY_SIM_DIR/scripts/test-lightning-ark-bridge.sh" "$@"; }
 sim-rgb-asset-to-ark-asset() { "$MUTINY_SIM_DIR/scripts/rgb-asset-to-ark-asset.sh" "$@"; }

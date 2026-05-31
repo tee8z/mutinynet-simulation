@@ -11,6 +11,9 @@ pub async fn home() -> Html<String> {
                 h1 { "Run the bridge and watch each leg move." }
             }
             div class="hero-actions" {
+                button class="button" type="button" data-start-flow="setup-assets" {
+                    "Prepare assets"
+                }
                 button class="button primary" type="button" data-start-flow="rgb-asset-to-ark-asset" {
                     "RGB -> Ark"
                 }
@@ -19,6 +22,9 @@ pub async fn home() -> Html<String> {
                 }
                 button class="button" type="button" data-start-flow="all" {
                     "Run both"
+                }
+                button class="button primary" type="button" data-start-flow="trustless-all" {
+                    "Trustless both"
                 }
             }
         }
@@ -46,6 +52,50 @@ pub async fn home() -> Html<String> {
             }
             div id="preflight-grid" class="status-grid" {
                 div class="empty" { "Loading preflight checks..." }
+            }
+        }
+
+        section class="grid two" {
+            div class="panel" {
+                div class="panel-heading" {
+                    div {
+                        h2 { "Setup" }
+                        p { "P2P tunnel and local proof inventory." }
+                    }
+                }
+                div class="action-row" {
+                    button class="button" type="button" data-p2p-action="start" { "Start P2P tunnel" }
+                    button class="button" type="button" data-p2p-action="stop" { "Stop P2P tunnel" }
+                    button class="button compact" type="button" id="refresh-p2p" { "Refresh" }
+                }
+                div id="p2p-status" class="status-grid" {
+                    div class="empty" { "Loading P2P tunnel state..." }
+                }
+                div class="action-row" {
+                    button class="button primary" type="button" data-start-flow="setup-assets" {
+                        "Prepare proof assets"
+                    }
+                }
+            }
+
+            div class="panel" {
+                div class="panel-heading" {
+                    div {
+                        h2 { "Trustless" }
+                        p { "Contract-bound Ark VTXO modes." }
+                    }
+                }
+                div class="action-row" {
+                    button class="button primary" type="button" data-start-flow="trustless-rgb-asset-to-ark-asset" {
+                        "Trustless RGB -> Ark"
+                    }
+                    button class="button primary" type="button" data-start-flow="trustless-ark-asset-to-rgb-asset" {
+                        "Trustless Ark -> RGB"
+                    }
+                    button class="button" type="button" data-start-flow="trustless-all" {
+                        "Trustless both"
+                    }
+                }
             }
         }
 
@@ -88,6 +138,9 @@ pub async fn home() -> Html<String> {
                     }
                 }
                 div class="action-row" {
+                    button class="button" type="button" data-start-flow="setup-assets" {
+                        "Prepare assets"
+                    }
                     button class="button primary" type="button" data-start-flow="rgb-asset-to-ark-asset" {
                         "Start RGB -> Ark"
                     }
@@ -95,6 +148,9 @@ pub async fn home() -> Html<String> {
                         "Start Ark -> RGB"
                     }
                     button class="button" type="button" data-start-flow="all" { "Start both" }
+                    button class="button primary" type="button" data-start-flow="trustless-all" {
+                        "Start trustless both"
+                    }
                 }
                 div id="flash" class="flash" {}
             }

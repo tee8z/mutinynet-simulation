@@ -6,7 +6,11 @@ license = "MIT"
 
 [dependencies]
 anyhow = "1.0"
+ark-client = { version = "0.9.2", default-features = false, features = ["tls-webpki-roots"] }
+ark-core = "0.9.2"
+ark-grpc = { version = "0.9.2", default-features = false, features = ["tls-webpki-roots"] }
 axum = "0.8"
+bitcoin = { version = "0.32.7", features = ["rand", "serde"] }
 hex = "0.4"
 rand = "0.8"
 serde = { version = "1.0", features = ["derive"] }
@@ -18,3 +22,4 @@ tower-http = { version = "0.6", features = ["trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 uuid = { version = "1.12", features = ["serde", "v4"] }
+voltage-tonic-lnd = { version = "0.4.0", default-features = false, features = ["lightningrpc", "invoicesrpc", "routerrpc", "ring", "tls"] }

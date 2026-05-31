@@ -1,7 +1,7 @@
 mod app_state;
 mod ark;
-mod command;
 mod config;
+mod contract;
 mod error;
 mod lnd;
 mod models;

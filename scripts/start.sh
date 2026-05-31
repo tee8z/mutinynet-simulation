@@ -549,13 +549,52 @@ start_arkd() {
   wait_for_arkd
 }
 
+extract_hex32_secret() {
+  local input key
+  input="$(cat)"
+  key="$(printf '%s' "$input" | jq -r '.private_key // .privateKey // .privkey // .hex // .raw // empty' 2>/dev/null | head -n 1 || true)"
+  if [[ "$key" =~ ^[0-9a-fA-F]{64}$ ]]; then
+    printf '%s\n' "$key"
+    return 0
+  fi
+  printf '%s\n' "$input" | grep -Eo '[0-9a-fA-F]{64}' | head -n 1
+}
+
+ensure_ark_lnd_provider_wallet_key() {
+  if [ -n "$ARK_LND_PROVIDER_ARK_PRIVATE_KEY_HEX" ]; then
+    return 0
+  fi
+
+  require_cmd ark jq
+  if ! ark_cli "$ARK_LND_PROVIDER_ARK_WALLET" config >/dev/null 2>&1; then
+    echo "initializing Ark provider CLI wallet $ARK_LND_PROVIDER_ARK_WALLET for startup key bootstrap"
+    ark_cli "$ARK_LND_PROVIDER_ARK_WALLET" init \
+      --server-url "$(arkd_url)" \
+      --explorer "$ARK_EXPLORER_URL" \
+      --password "$ARK_CLI_PASSWORD"
+  fi
+
+  local output key
+  output="$(ark_cli "$ARK_LND_PROVIDER_ARK_WALLET" dump-privkey --password "$ARK_CLI_PASSWORD" 2>&1)" || {
+    printf '%s\n' "$output" >&2
+    echo "failed to read Ark provider wallet private key; set ARK_LND_PROVIDER_ARK_PRIVATE_KEY_HEX explicitly" >&2
+    return 1
+  }
+  key="$(printf '%s' "$output" | extract_hex32_secret)"
+  if ! [[ "$key" =~ ^[0-9a-fA-F]{64}$ ]]; then
+    echo "ark dump-privkey did not return a 32-byte hex private key; set ARK_LND_PROVIDER_ARK_PRIVATE_KEY_HEX explicitly" >&2
+    return 1
+  fi
+  ARK_LND_PROVIDER_ARK_PRIVATE_KEY_HEX="$key"
+}
+
 start_ark_lnd_provider() {
   if [ "$ARK_LND_PROVIDER_ENABLED" != "1" ]; then
     echo "ark-lnd-provider disabled"
     return 0
   fi
 
-  require_cmd ark-lnd-swap-provider "$LNCLI_BINARY" ark
+  require_cmd ark-lnd-swap-provider
 
   local pid log lnd_node lnd_dir lnd_rpcserver lnd_tls lnd_macaroon
   pid="$(pid_file ark-lnd-provider)"
@@ -568,6 +607,7 @@ start_ark_lnd_provider() {
 
   start_lnd_node "$lnd_node"
   start_arkd
+  ensure_ark_lnd_provider_wallet_key
 
   if [ -f "$pid" ] && kill -0 "$(cat "$pid")" >/dev/null 2>&1; then
     echo "ark-lnd-provider already running: pid $(cat "$pid")"
@@ -576,7 +616,7 @@ start_ark_lnd_provider() {
   fi
 
   mkdir -p "$ARK_LND_PROVIDER_DIR" "$ARK_LND_PROVIDER_ARK_WALLET_DIR"
-  echo "starting ark-lnd-provider $(ark_lnd_provider_url) lnd=${lnd_node} ark_wallet=${ARK_LND_PROVIDER_ARK_WALLET_DIR}"
+  echo "starting ark-lnd-provider $(ark_lnd_provider_url) lnd=${lnd_node} ark_server=${ARK_LND_PROVIDER_ARK_SERVER_URL}"
 
   ARK_LND_PROVIDER_BIND="$ARK_LND_PROVIDER_BIND" \
   ARK_LND_PROVIDER_DB="$ARK_LND_PROVIDER_DB" \
@@ -584,12 +624,16 @@ start_ark_lnd_provider() {
   ARK_LND_PROVIDER_LND_DIR="${ARK_LND_PROVIDER_LND_DIR:-$lnd_dir}" \
   ARK_LND_PROVIDER_LND_RPCSERVER="${ARK_LND_PROVIDER_LND_RPCSERVER:-$lnd_rpcserver}" \
   ARK_LND_PROVIDER_LND_NETWORK="${ARK_LND_PROVIDER_LND_NETWORK:-$LND_NETWORK}" \
-  ARK_LND_PROVIDER_LNCLI_BIN="${ARK_LND_PROVIDER_LNCLI_BIN:-$LNCLI_BINARY}" \
   ARK_LND_PROVIDER_LND_TLS_CERT="${ARK_LND_PROVIDER_LND_TLS_CERT:-$lnd_tls}" \
   ARK_LND_PROVIDER_LND_NO_MACAROONS="${ARK_LND_PROVIDER_LND_NO_MACAROONS:-$LND_NO_MACAROONS}" \
   ARK_LND_PROVIDER_LND_MACAROON="${ARK_LND_PROVIDER_LND_MACAROON:-$lnd_macaroon}" \
   ARK_LND_PROVIDER_ARK_WALLET_DIR="$ARK_LND_PROVIDER_ARK_WALLET_DIR" \
-  ARK_LND_PROVIDER_ARK_PASSWORD="${ARK_LND_PROVIDER_ARK_PASSWORD:-$ARK_CLI_PASSWORD}" \
+  ARK_LND_PROVIDER_ARK_PRIVATE_KEY_HEX="$ARK_LND_PROVIDER_ARK_PRIVATE_KEY_HEX" \
+  ARK_LND_PROVIDER_ARK_SERVER_URL="$ARK_LND_PROVIDER_ARK_SERVER_URL" \
+  ARK_LND_PROVIDER_ARK_NETWORK="$ARK_LND_PROVIDER_ARK_NETWORK" \
+  ARK_LND_PROVIDER_ARK_CONTRACT_VTXO_SATS="$ARK_LND_PROVIDER_ARK_CONTRACT_VTXO_SATS" \
+  ARK_LND_PROVIDER_ARK_CONTRACT_CLAIM_DELAY_BLOCKS="$ARK_LND_PROVIDER_ARK_CONTRACT_CLAIM_DELAY_BLOCKS" \
+  ARK_LND_PROVIDER_ARK_CONTRACT_REFUND_DELAY_BLOCKS="$ARK_LND_PROVIDER_ARK_CONTRACT_REFUND_DELAY_BLOCKS" \
     setsid ark-lnd-swap-provider </dev/null >"$log" 2>&1 &
   echo $! >"$pid"
 

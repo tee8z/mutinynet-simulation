@@ -8,6 +8,7 @@ pub struct Settings {
     pub database: DatabaseSettings,
     pub lnd: LndSettings,
     pub ark: ArkSettings,
+    pub ark_contract: ArkContractSettings,
     pub watcher: WatcherSettings,
 }
 
@@ -20,7 +21,6 @@ pub struct DatabaseSettings {
 #[derive(Clone, Debug)]
 pub struct LndSettings {
     pub command_timeout: Duration,
-    pub lncli_bin: String,
     pub dir: PathBuf,
     pub rpcserver: String,
     pub network: String,
@@ -32,9 +32,20 @@ pub struct LndSettings {
 #[derive(Clone, Debug)]
 pub struct ArkSettings {
     pub command_timeout: Duration,
-    pub ark_bin: String,
     pub wallet_dir: PathBuf,
-    pub password: Option<String>,
+    pub private_key_hex: Option<String>,
+    pub ark_server_url: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct ArkContractSettings {
+    pub command_timeout: Duration,
+    pub ark_server_url: String,
+    pub network: String,
+    pub private_key_hex: Option<String>,
+    pub vtxo_sats: i64,
+    pub unilateral_claim_delay_blocks: i64,
+    pub unilateral_refund_delay_blocks: i64,
 }
 
 #[derive(Clone, Debug)]
@@ -61,7 +72,6 @@ impl Settings {
             database: DatabaseSettings { url, path },
             lnd: LndSettings {
                 command_timeout,
-                lncli_bin: env_string("ARK_LND_PROVIDER_LNCLI_BIN", "lncli"),
                 dir: env_path("ARK_LND_PROVIDER_LND_DIR", "./data/lnd2"),
                 rpcserver: env_string("ARK_LND_PROVIDER_LND_RPCSERVER", "127.0.0.1:10042"),
                 network: env_string("ARK_LND_PROVIDER_LND_NETWORK", "signet"),
@@ -71,9 +81,30 @@ impl Settings {
             },
             ark: ArkSettings {
                 command_timeout,
-                ark_bin: env_string("ARK_LND_PROVIDER_ARK_BIN", "ark"),
                 wallet_dir: env_path("ARK_LND_PROVIDER_ARK_WALLET_DIR", "./data/ark-cli/maker"),
-                password: env::var("ARK_LND_PROVIDER_ARK_PASSWORD").ok(),
+                private_key_hex: env::var("ARK_LND_PROVIDER_ARK_PRIVATE_KEY_HEX").ok(),
+                ark_server_url: env_string(
+                    "ARK_LND_PROVIDER_ARK_SERVER_URL",
+                    "http://127.0.0.1:7070",
+                ),
+            },
+            ark_contract: ArkContractSettings {
+                command_timeout,
+                ark_server_url: env_string(
+                    "ARK_LND_PROVIDER_ARK_SERVER_URL",
+                    "http://127.0.0.1:7070",
+                ),
+                network: env_string("ARK_LND_PROVIDER_ARK_NETWORK", "mutinynet"),
+                private_key_hex: env::var("ARK_LND_PROVIDER_ARK_PRIVATE_KEY_HEX").ok(),
+                vtxo_sats: env_i64("ARK_LND_PROVIDER_ARK_CONTRACT_VTXO_SATS", 1000),
+                unilateral_claim_delay_blocks: env_i64(
+                    "ARK_LND_PROVIDER_ARK_CONTRACT_CLAIM_DELAY_BLOCKS",
+                    1,
+                ),
+                unilateral_refund_delay_blocks: env_i64(
+                    "ARK_LND_PROVIDER_ARK_CONTRACT_REFUND_DELAY_BLOCKS",
+                    1,
+                ),
             },
             watcher: WatcherSettings {
                 enabled: env_bool("ARK_LND_PROVIDER_WATCHER_ENABLED", true),
@@ -106,6 +137,13 @@ fn env_bool(key: &str, default: bool) -> bool {
 }
 
 fn env_u64(key: &str, default: u64) -> u64 {
+    env::var(key)
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(default)
+}
+
+fn env_i64(key: &str, default: i64) -> i64 {
     env::var(key)
         .ok()
         .and_then(|value| value.parse().ok())

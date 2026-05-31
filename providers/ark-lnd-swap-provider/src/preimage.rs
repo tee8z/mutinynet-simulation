@@ -38,6 +38,10 @@ pub fn validate_hex32(label: &str, value: &str) -> Result<(), ApiError> {
     decode_hex32(label, value).map(|_| ())
 }
 
+pub fn sha256_hex_from_hex32(label: &str, value: &str) -> Result<String, ApiError> {
+    decode_hex32(label, value).map(|bytes| sha256_hex(&bytes))
+}
+
 fn normalize_hex32(label: &str, value: &str) -> Result<String, ApiError> {
     decode_hex32(label, value).map(hex::encode)
 }
