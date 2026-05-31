@@ -127,11 +127,7 @@ curl -sS http://127.0.0.1:8091/api/flows/<run-id> | jq
 
 ## Public Proofs
 
-Public proof artifacts live under [docs/proofs/](docs/proofs/). The current Ark VHTLC proof is:
-
-```text
-docs/proofs/lightning-ark-bridge-contract-vtxo/20260531T195250Z/
-```
+Public proof artifacts live under [docs/proofs/](docs/proofs/). The current Ark VHTLC proof is the single flow README at [docs/proofs/README.md](docs/proofs/README.md), with screenshots linked from that page.
 
 The proof records both directions with `contract_funded`, `contract_claimed`, `preimage_verified`, `ln_or_rgb_settled`, and `no_preimage_before_claim` set to `true`.
 

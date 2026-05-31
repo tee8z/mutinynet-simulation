@@ -219,7 +219,7 @@ Latest local proof run:
 setup run: 1780257123-6301cdac-3174-4fe3-b76f-9b29295e2490
 proof run: 1780257136-743967ac-caee-4021-877e-ada558470f6e
 artifact dir: state/bridge-ui/1780257136-743967ac-caee-4021-877e-ada558470f6e/artifacts/
-public proof: docs/proofs/lightning-ark-bridge-contract-vtxo/20260531T195250Z/
+public proof: docs/proofs/README.md
 ```
 
 Both legs in that run have `contract_funded`, `contract_claimed`, `preimage_verified`, `ln_or_rgb_settled`, and `no_preimage_before_claim` set to `true`.
