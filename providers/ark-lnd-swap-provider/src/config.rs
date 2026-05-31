@@ -9,7 +9,6 @@ pub struct Settings {
     pub lnd: LndSettings,
     pub ark: ArkSettings,
     pub ark_contract: ArkContractSettings,
-    pub watcher: WatcherSettings,
 }
 
 #[derive(Clone, Debug)]
@@ -21,9 +20,7 @@ pub struct DatabaseSettings {
 #[derive(Clone, Debug)]
 pub struct LndSettings {
     pub command_timeout: Duration,
-    pub dir: PathBuf,
     pub rpcserver: String,
-    pub network: String,
     pub tls_cert: PathBuf,
     pub no_macaroons: bool,
     pub macaroon: Option<PathBuf>,
@@ -46,12 +43,6 @@ pub struct ArkContractSettings {
     pub vtxo_sats: i64,
 }
 
-#[derive(Clone, Debug)]
-pub struct WatcherSettings {
-    pub enabled: bool,
-    pub interval: Duration,
-}
-
 impl Settings {
     pub fn from_env() -> anyhow::Result<Self> {
         let bind = env_string("ARK_LND_PROVIDER_BIND", "127.0.0.1:8090")
@@ -70,9 +61,7 @@ impl Settings {
             database: DatabaseSettings { url, path },
             lnd: LndSettings {
                 command_timeout,
-                dir: env_path("ARK_LND_PROVIDER_LND_DIR", "./data/lnd2"),
                 rpcserver: env_string("ARK_LND_PROVIDER_LND_RPCSERVER", "127.0.0.1:10042"),
-                network: env_string("ARK_LND_PROVIDER_LND_NETWORK", "signet"),
                 tls_cert: env_path("ARK_LND_PROVIDER_LND_TLS_CERT", "./data/lnd2/tls.cert"),
                 no_macaroons: env_bool("ARK_LND_PROVIDER_LND_NO_MACAROONS", true),
                 macaroon: env::var_os("ARK_LND_PROVIDER_LND_MACAROON").map(PathBuf::from),
@@ -95,10 +84,6 @@ impl Settings {
                 network: env_string("ARK_LND_PROVIDER_ARK_NETWORK", "mutinynet"),
                 private_key_hex: env::var("ARK_LND_PROVIDER_ARK_PRIVATE_KEY_HEX").ok(),
                 vtxo_sats: env_i64("ARK_LND_PROVIDER_ARK_CONTRACT_VTXO_SATS", 1000),
-            },
-            watcher: WatcherSettings {
-                enabled: env_bool("ARK_LND_PROVIDER_WATCHER_ENABLED", true),
-                interval: Duration::from_secs(env_u64("ARK_LND_PROVIDER_WATCH_INTERVAL_SEC", 2)),
             },
         })
     }

@@ -20,11 +20,8 @@ pub async fn home() -> Html<String> {
                 button class="button primary" type="button" data-start-flow="ark-asset-to-rgb-asset" {
                     "Ark -> RGB"
                 }
-                button class="button" type="button" data-start-flow="all" {
+                button class="button primary" type="button" data-start-flow="all" {
                     "Run both"
-                }
-                button class="button primary" type="button" data-start-flow="trustless-all" {
-                    "Trustless both"
                 }
             }
         }
@@ -81,19 +78,19 @@ pub async fn home() -> Html<String> {
             div class="panel" {
                 div class="panel-heading" {
                     div {
-                        h2 { "Trustless" }
-                        p { "Contract-bound Ark VTXO modes." }
+                        h2 { "Bridge" }
+                        p { "Ark VHTLC swap modes." }
                     }
                 }
                 div class="action-row" {
-                    button class="button primary" type="button" data-start-flow="trustless-rgb-asset-to-ark-asset" {
-                        "Trustless RGB -> Ark"
+                    button class="button primary" type="button" data-start-flow="rgb-asset-to-ark-asset" {
+                        "RGB -> Ark"
                     }
-                    button class="button primary" type="button" data-start-flow="trustless-ark-asset-to-rgb-asset" {
-                        "Trustless Ark -> RGB"
+                    button class="button primary" type="button" data-start-flow="ark-asset-to-rgb-asset" {
+                        "Ark -> RGB"
                     }
-                    button class="button" type="button" data-start-flow="trustless-all" {
-                        "Trustless both"
+                    button class="button" type="button" data-start-flow="all" {
+                        "Run both"
                     }
                 }
             }
@@ -147,10 +144,7 @@ pub async fn home() -> Html<String> {
                     button class="button primary" type="button" data-start-flow="ark-asset-to-rgb-asset" {
                         "Start Ark -> RGB"
                     }
-                    button class="button" type="button" data-start-flow="all" { "Start both" }
-                    button class="button primary" type="button" data-start-flow="trustless-all" {
-                        "Start trustless both"
-                    }
+                    button class="button primary" type="button" data-start-flow="all" { "Start both" }
                 }
                 div id="flash" class="flash" {}
             }

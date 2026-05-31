@@ -139,7 +139,7 @@ pub struct CreateLnToArkRequest {
     pub memo: Option<String>,
     pub preimage: Option<String>,
     pub preimage_hash: Option<String>,
-    pub trustless: Option<bool>,
+    pub contract: Option<bool>,
     pub asset_id: Option<String>,
     pub asset_amount: Option<String>,
     pub ark_recipient: Option<String>,
@@ -159,7 +159,7 @@ pub struct CreateArkToLnRequest {
     pub asset_id: Option<String>,
     pub asset_amount: Option<String>,
     pub ark_wallet_dir: Option<String>,
-    pub trustless: Option<bool>,
+    pub contract: Option<bool>,
     pub ark_claim_pubkey: Option<String>,
     pub ark_refund_pubkey: Option<String>,
     pub ark_refund_time: Option<i64>,
@@ -199,7 +199,6 @@ pub struct ArkReceiveRequest {
 #[derive(Debug, Deserialize)]
 pub struct ArkContractPubkeyRequest {
     pub wallet_dir: Option<String>,
-    pub wallet_password: Option<String>,
     pub wallet_private_key_hex: Option<String>,
 }
 

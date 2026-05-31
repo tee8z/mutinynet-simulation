@@ -13,16 +13,12 @@ operations.
 The provider is the Ark-side coordinator in the validated Ark asset <-> RGB
 asset simulation:
 
-- `ln-to-ark` creates a hold invoice. The RGB side pays that invoice with an RGB
-  asset, then the provider sends the mapped Ark asset and settles the invoice.
-- `ark-to-ln` records the Ark-side asset movement, pays a mapped RGB invoice
-  through `lnd2`, and lets the RGB node deliver the mapped RGB asset before the
-  held Lightning invoice is claimed.
-
-The experimental trustless modes keep the same outer API but add Ark VHTLC
-fields. `ln-to-ark` accepts a caller-supplied payment hash and creates a
-contract template without storing a preimage. `ark-to-ln` requires a funded Ark
-contract before the provider will pay the Lightning invoice.
+- `ln-to-ark` creates a hold invoice from a caller-supplied payment hash,
+  returns an Ark VHTLC template, funds that VHTLC after the RGB/LN leg is
+  locked, and settles the invoice from the observed Ark claim preimage.
+- `ark-to-ln` creates an Ark VHTLC template for the RGB/LN invoice hash,
+  requires a funded Ark contract before paying the Lightning invoice, and claims
+  the Ark VHTLC with the payment preimage.
 
 ## Endpoints
 
@@ -52,15 +48,15 @@ Example:
 ```bash
 curl -sS http://127.0.0.1:8090/v1/swaps/ln-to-ark \
   -H 'Content-Type: application/json' \
-  --data '{"amount_sat":1000,"asset_id":"<asset_id>","asset_amount":"100","ark_recipient":"<ark_address>"}'
+  --data '{"contract":true,"amount_sat":1000,"preimage_hash":"<sha256_preimage_hash_hex>","asset_id":"<asset_id>","asset_amount":"100","ark_claim_pubkey":"<xonly_pubkey>","ark_refund_time":<unix_time>,"ln_expiry":<unix_time>}'
 ```
 
-Trustless harness modes:
+Ark VHTLC harness modes:
 
 ```bash
-scripts/test-lightning-ark-bridge.sh trustless-rgb-asset-to-ark-asset
-scripts/test-lightning-ark-bridge.sh trustless-ark-asset-to-rgb-asset
-scripts/test-lightning-ark-bridge.sh trustless-all
+scripts/test-lightning-ark-bridge.sh rgb-asset-to-ark-asset
+scripts/test-lightning-ark-bridge.sh ark-asset-to-rgb-asset
+scripts/test-lightning-ark-bridge.sh all
 ```
 
 The Ark/LND gRPC adapters are configured with:

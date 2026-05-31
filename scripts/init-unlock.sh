@@ -29,7 +29,7 @@ targets_from_args() {
 }
 
 init_unlock_rln_node() {
-  local node data rpc_host rpc_port announce payload
+  local node data rpc_host rpc_port announce payload output error rc
   node="$(node_label "$1")"
   data="$(node_dir "$node")"
 
@@ -76,7 +76,22 @@ init_unlock_rln_node() {
     }')"
 
   echo "unlocking $node"
-  api "$node" POST /unlock "$payload" | jq .
+  output="$(mktemp)"
+  error="$(mktemp)"
+  if api "$node" POST /unlock "$payload" >"$output" 2>"$error"; then
+    jq . "$output"
+  else
+    rc=$?
+    if jq -e '.name == "AlreadyUnlocked"' "$output" >/dev/null 2>&1; then
+      echo "$node already unlocked"
+    else
+      cat "$error" >&2
+      cat "$output" >&2
+      rm -f "$output" "$error"
+      return "$rc"
+    fi
+  fi
+  rm -f "$output" "$error"
 }
 
 init_lnd_wallet() {

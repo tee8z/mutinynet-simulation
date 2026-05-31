@@ -735,6 +735,21 @@ wait_for_nbxplorer_postgres() {
 
 wait_for_nbxplorer() {
   wait_for_tcp "$NBXPLORER_BIND" "$NBXPLORER_PORT" nbxplorer 180
+
+  local start status
+  start="$(date +%s)"
+  while true; do
+    status="$(curl -fsS "$(nbxplorer_url)/v1/cryptos/BTC/status" 2>/dev/null || true)"
+    if [ -n "$status" ] \
+      && printf '%s' "$status" | jq -e '.isFullySynched == true' >/dev/null 2>&1; then
+      return 0
+    fi
+    if [ $(( "$(date +%s)" - start )) -ge 180 ]; then
+      echo "nbxplorer opened $NBXPLORER_BIND:$NBXPLORER_PORT but BTC API never became ready" >&2
+      return 1
+    fi
+    sleep 2
+  done
 }
 
 wait_for_esplora_http() {

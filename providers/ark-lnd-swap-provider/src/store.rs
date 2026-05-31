@@ -149,11 +149,6 @@ enum WriteCommand {
         source: String,
         respond_to: oneshot::Sender<StoreResult<SwapRow>>,
     },
-    UpdateLastError {
-        id: String,
-        error: String,
-        respond_to: oneshot::Sender<StoreResult<SwapRow>>,
-    },
 }
 
 impl SwapStore {
@@ -208,31 +203,6 @@ impl SwapStore {
 
     pub async fn load_swap(&self, id: &str) -> StoreResult<SwapRow> {
         load_swap(&self.read_pool, id).await
-    }
-
-    pub async fn list_watchable_swaps(&self) -> StoreResult<Vec<SwapRow>> {
-        let rows = sqlx::query_as::<_, SwapRow>(
-            r#"
-            SELECT *
-            FROM swaps
-            WHERE status IN (
-                'ln_hold_invoice_created',
-                'ln_accepted',
-                'ln_payment_started',
-                'ark_sent',
-                'ln_invoice_registered',
-                'ark_contract_template_created',
-                'ark_contract_funded',
-                'ark_contract_claimed'
-            )
-            ORDER BY created_at ASC
-            LIMIT 100
-            "#,
-        )
-        .fetch_all(&self.read_pool)
-        .await?;
-
-        Ok(rows)
     }
 
     pub async fn create_ln_to_ark(&self, record: NewLnToArkSwap) -> StoreResult<SwapRow> {
@@ -309,20 +279,6 @@ impl SwapStore {
         .await
     }
 
-    pub async fn update_last_error(
-        &self,
-        id: String,
-        error: impl Into<String>,
-    ) -> StoreResult<SwapRow> {
-        let error = error.into();
-        self.send_write(|respond_to| WriteCommand::UpdateLastError {
-            id,
-            error,
-            respond_to,
-        })
-        .await
-    }
-
     async fn send_write(
         &self,
         build: impl FnOnce(oneshot::Sender<StoreResult<SwapRow>>) -> WriteCommand,
@@ -378,13 +334,6 @@ async fn write_loop(pool: SqlitePool, mut receiver: mpsc::Receiver<WriteCommand>
                 respond_to,
             } => {
                 let _ = respond_to.send(update_preimage(&pool, &id, &preimage, &source).await);
-            }
-            WriteCommand::UpdateLastError {
-                id,
-                error,
-                respond_to,
-            } => {
-                let _ = respond_to.send(update_last_error(&pool, &id, &error).await);
             }
         }
     }
@@ -643,29 +592,6 @@ async fn update_preimage(
         id,
         "preimage_learned",
         &serde_json::json!({ "stored": true, "source": source }),
-    )
-    .await?;
-    load_swap(pool, id).await
-}
-
-async fn update_last_error(pool: &SqlitePool, id: &str, error: &str) -> StoreResult<SwapRow> {
-    let rows = sqlx::query("UPDATE swaps SET last_error = ?, updated_at = ? WHERE id = ?")
-        .bind(error)
-        .bind(now_unix())
-        .bind(id)
-        .execute(pool)
-        .await?
-        .rows_affected();
-
-    if rows == 0 {
-        return Err(StoreError::NotFound(id.to_string()));
-    }
-
-    record_event(
-        pool,
-        id,
-        "watch_error",
-        &serde_json::json!({ "error": error }),
     )
     .await?;
     load_swap(pool, id).await

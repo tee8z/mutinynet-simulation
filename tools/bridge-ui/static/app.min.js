@@ -1,6 +1,9 @@
 const state = {
-  selectedRunId: null,
+  selectedRunId: window.localStorage.getItem("bridge:selected-run-id"),
   pollHandle: null,
+  lastRunStatus: null,
+  runsSignature: "",
+  runningFlowCount: 0,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -59,7 +62,7 @@ function requestBodyFromForm() {
 async function refreshCluster() {
   const grid = $("cluster-grid");
   if (!grid) return;
-  grid.innerHTML = '<div class="empty">Loading cluster state...</div>';
+  showLoadingOnce(grid, "Loading cluster state...");
   try {
     const snapshot = await jsonFetch("/api/cluster");
     grid.innerHTML = snapshot.checks
@@ -84,7 +87,7 @@ async function refreshCluster() {
 async function refreshPreflight() {
   const grid = $("preflight-grid");
   if (!grid) return;
-  grid.innerHTML = '<div class="empty">Loading preflight checks...</div>';
+  showLoadingOnce(grid, "Loading preflight checks...");
   try {
     const snapshot = await jsonFetch("/api/preflight");
     const rows = [
@@ -127,7 +130,7 @@ function renderCommandStatus(node, snapshot) {
 async function refreshP2p() {
   const grid = $("p2p-status");
   if (!grid) return;
-  grid.innerHTML = '<div class="empty">Loading P2P tunnel state...</div>';
+  showLoadingOnce(grid, "Loading P2P tunnel state...");
   try {
     renderCommandStatus(grid, await jsonFetch("/api/p2p"));
   } catch (error) {
@@ -175,11 +178,22 @@ async function refreshRuns() {
   try {
     const data = await jsonFetch("/api/flows");
     const flows = data.flows || [];
+    state.runningFlowCount = flows.filter((run) => run.status === "running").length;
+    setStartButtonsEnabled(state.runningFlowCount === 0);
     if (flows.length === 0) {
       list.innerHTML = '<div class="empty">No runs yet.</div>';
+      state.runsSignature = "";
       return;
     }
     flows.sort((a, b) => b.started_at_unix - a.started_at_unix);
+    const signature = JSON.stringify(
+      flows.map((run) => [run.id, run.mode, run.status, run.completed_at_unix]),
+    );
+    if (signature === state.runsSignature) {
+      updateRunListSelection();
+      return;
+    }
+    state.runsSignature = signature;
     list.innerHTML = flows
       .map((run) => {
         const active = run.id === state.selectedRunId ? "active" : "";
@@ -200,8 +214,11 @@ async function refreshSelectedRun() {
   if (!state.selectedRunId) return;
   try {
     const run = await jsonFetch(`/api/flows/${state.selectedRunId}`);
+    const previousStatus = state.lastRunStatus;
     renderRun(run);
-    await refreshRuns();
+    if (run.status !== previousStatus || run.status !== "running") {
+      await refreshRuns();
+    }
     if (run.status !== "running") {
       stopPolling();
     }
@@ -213,6 +230,8 @@ async function refreshSelectedRun() {
 
 function renderRun(run) {
   state.selectedRunId = run.id;
+  state.lastRunStatus = run.status;
+  window.localStorage.setItem("bridge:selected-run-id", run.id);
   const label = $("selected-run-label");
   const statePill = $("run-state");
   const timeline = $("timeline-list");
@@ -275,6 +294,25 @@ function stopPolling() {
   }
 }
 
+function showLoadingOnce(node, message) {
+  if (!node.children.length || node.querySelector(".empty")) {
+    node.innerHTML = `<div class="empty">${escapeHtml(message)}</div>`;
+  }
+}
+
+function updateRunListSelection() {
+  document.querySelectorAll("[data-run-id]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.runId === state.selectedRunId);
+  });
+}
+
+function setStartButtonsEnabled(enabled) {
+  document.querySelectorAll("[data-start-flow]").forEach((button) => {
+    button.disabled = !enabled;
+    button.setAttribute("aria-disabled", enabled ? "false" : "true");
+  });
+}
+
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -314,6 +352,10 @@ document.addEventListener("DOMContentLoaded", () => {
   refreshP2p();
   refreshPreflight();
   refreshRuns();
+  if (state.selectedRunId) {
+    refreshSelectedRun();
+    startPolling();
+  }
   window.setInterval(refreshCluster, 15000);
   window.setInterval(refreshP2p, 15000);
   window.setInterval(refreshPreflight, 15000);

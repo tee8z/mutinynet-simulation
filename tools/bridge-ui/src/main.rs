@@ -260,6 +260,7 @@ async fn start_flow(
 ) -> Result<Json<FlowResponse>, ApiError> {
     let mut request = request.map(|Json(request)| request).unwrap_or_default();
     let mode = normalize_mode(&mode)?;
+    reject_if_flow_running(&state).await?;
     apply_default_assets(&state, &mode, &mut request)
         .await
         .map_err(|err| ApiError::bad_request(err.to_string()))?;
@@ -356,7 +357,7 @@ async fn run_harness(
     if let Some(value) = request.wait_timeout_sec {
         command.env("BRIDGE_TEST_WAIT_TIMEOUT_SEC", value.to_string());
     }
-    if (run.mode == "setup-assets" || is_trustless_mode(&run.mode))
+    if (run.mode == "setup-assets" || is_bridge_mode(&run.mode))
         && env::var("BRIDGE_TEST_ARK_TAKER_PRIVATE_KEY_HEX")
             .ok()
             .filter(|value| !value.trim().is_empty())
@@ -570,17 +571,19 @@ async fn apply_default_assets(
     mode: &str,
     request: &mut StartFlowRequest,
 ) -> anyhow::Result<()> {
-    if mode == "setup-assets" {
-        return Ok(());
-    }
-
     if request
         .rgb_asset_id
         .as_deref()
         .unwrap_or_default()
         .is_empty()
     {
-        request.rgb_asset_id = Some(resolve_rgb_asset_id(state).await?.value);
+        match resolve_rgb_asset_id(state).await {
+            Ok(resolved) => request.rgb_asset_id = Some(resolved.value),
+            Err(err) if mode == "setup-assets" => {
+                info!("setup-assets will issue RGB asset because no default resolved: {err}");
+            }
+            Err(err) => return Err(err),
+        }
     }
 
     if request
@@ -590,9 +593,29 @@ async fn apply_default_assets(
         .is_empty()
     {
         let amount = request.ark_asset_amount.as_deref().unwrap_or("100");
-        request.ark_asset_id = Some(resolve_ark_asset_id(state, mode, amount).await?.value);
+        match resolve_ark_asset_id(state, mode, amount).await {
+            Ok(resolved) => request.ark_asset_id = Some(resolved.value),
+            Err(err) if mode == "setup-assets" => {
+                info!("setup-assets will issue Ark asset because no default resolved: {err}");
+            }
+            Err(err) => return Err(err),
+        }
     }
 
+    Ok(())
+}
+
+async fn reject_if_flow_running(state: &AppState) -> Result<(), ApiError> {
+    let runs = state.runs.lock().await;
+    if let Some(run) = runs
+        .values()
+        .find(|run| matches!(run.status, RunStatus::Running))
+    {
+        return Err(ApiError::bad_request(format!(
+            "{} is still running as {}; wait for it to finish before starting another flow",
+            run.mode, run.id
+        )));
+    }
     Ok(())
 }
 
@@ -864,12 +887,6 @@ fn build_timeline(mode: &str, output_dir: &FsPath) -> Vec<TimelineStep> {
     if mode == "all" || mode == "ark-asset-to-rgb-asset" {
         defs.extend_from_slice(ARK_TO_RGB_STEPS);
     }
-    if mode == "trustless-all" || mode == "trustless-rgb-asset-to-ark-asset" {
-        defs.extend_from_slice(TRUSTLESS_RGB_TO_ARK_STEPS);
-    }
-    if mode == "trustless-all" || mode == "trustless-ark-asset-to-rgb-asset" {
-        defs.extend_from_slice(TRUSTLESS_ARK_TO_RGB_STEPS);
-    }
 
     defs.into_iter()
         .map(|def| {
@@ -921,150 +938,90 @@ const RGB_TO_ARK_STEPS: &[StepDef] = &[
     },
     StepDef {
         flow: "rgb_asset_to_ark_asset",
-        step: "rgb_asset_channel",
-        label: "node1 has usable RGB asset channel to node4",
-        file: "node1-node4-rgb-asset-channels.json",
-    },
-    StepDef {
-        flow: "rgb_asset_to_ark_asset",
-        step: "provider_ark_inventory",
-        label: "provider maker wallet holds Ark asset inventory",
-        file: "provider-maker-balance.json",
-    },
-    StepDef {
-        flow: "rgb_asset_to_ark_asset",
-        step: "ark_recipient",
-        label: "Ark taker creates recipient",
-        file: "rgb-asset-to-ark-asset-ark-receive.json",
-    },
-    StepDef {
-        flow: "rgb_asset_to_ark_asset",
-        step: "hold_invoice",
-        label: "provider creates LND hold invoice",
+        step: "contract_template",
+        label: "provider creates hold invoice and Ark VHTLC template",
         file: "rgb-asset-to-ark-asset-swap-created.json",
     },
     StepDef {
         flow: "rgb_asset_to_ark_asset",
-        step: "rgb_prepare",
-        label: "node1 prepares RGB asset payment",
-        file: "rgb-asset-to-ark-asset-rgb-prepare.json",
-    },
-    StepDef {
-        flow: "rgb_asset_to_ark_asset",
-        step: "rmm_register",
-        label: "node4 registers RGB swap route",
-        file: "rgb-asset-to-ark-asset-rgb-maker-taker.json",
-    },
-    StepDef {
-        flow: "rgb_asset_to_ark_asset",
         step: "rgb_payment_sent",
-        label: "node1 sends RGB asset payment",
+        label: "RGB asset payment locks the Lightning leg",
         file: "rgb-asset-to-ark-asset-rgb-sendpayment.json",
     },
     StepDef {
         flow: "rgb_asset_to_ark_asset",
-        step: "lnd_invoice_state",
-        label: "provider LND invoice reaches target state",
-        file: "rgb-asset-to-ark-asset-lnd-invoice.json",
+        step: "contract_funded",
+        label: "provider funds Ark VHTLC",
+        file: "rgb-asset-to-ark-asset-contract-fund.json",
     },
     StepDef {
         flow: "rgb_asset_to_ark_asset",
-        step: "ark_asset_sent",
-        label: "provider sends Ark asset",
-        file: "rgb-asset-to-ark-asset-ark-send.json",
+        step: "contract_claimed",
+        label: "taker claims Ark VHTLC",
+        file: "rgb-asset-to-ark-asset-contract-claim.json",
     },
     StepDef {
         flow: "rgb_asset_to_ark_asset",
-        step: "hold_invoice_settled",
-        label: "provider settles hold invoice",
-        file: "rgb-asset-to-ark-asset-settle.json",
+        step: "claim_observed",
+        label: "provider settles from observed claim preimage",
+        file: "rgb-asset-to-ark-asset-observe-claim.json",
     },
     StepDef {
         flow: "rgb_asset_to_ark_asset",
-        step: "rgb_payment_succeeded",
-        label: "RGB payment reaches Succeeded",
-        file: "rgb-asset-to-ark-asset-rgb-payment.json",
-    },
-    StepDef {
-        flow: "rgb_asset_to_ark_asset",
-        step: "ark_taker_balance",
-        label: "Ark taker balance updated",
-        file: "rgb-asset-to-ark-asset-taker-balance.json",
+        step: "summary",
+        label: "proof summary recorded",
+        file: "rgb-asset-to-ark-asset-proof-summary.json",
     },
 ];
 
 const ARK_TO_RGB_STEPS: &[StepDef] = &[
     StepDef {
         flow: "ark_asset_to_rgb_asset",
-        step: "provider_health",
-        label: "provider is reachable",
-        file: "provider-health.json",
-    },
-    StepDef {
-        flow: "ark_asset_to_rgb_asset",
-        step: "rgb_asset_channel",
-        label: "node4 has usable RGB asset channel to node1",
-        file: "node4-node1-rgb-asset-channels.json",
-    },
-    StepDef {
-        flow: "ark_asset_to_rgb_asset",
-        step: "ark_payer_inventory",
-        label: "Ark taker wallet holds Ark asset inventory",
-        file: "ark-payer-balance.json",
-    },
-    StepDef {
-        flow: "ark_asset_to_rgb_asset",
-        step: "rgb_invoice_created",
-        label: "node4 creates mapped RGB asset invoice",
+        step: "rgb_invoice",
+        label: "RGB mapped invoice is created",
         file: "ark-asset-to-rgb-asset-rgb-invoice.json",
     },
     StepDef {
         flow: "ark_asset_to_rgb_asset",
-        step: "provider_ark_recipient",
-        label: "provider creates Ark recipient",
-        file: "ark-asset-to-rgb-asset-provider-receive.json",
-    },
-    StepDef {
-        flow: "ark_asset_to_rgb_asset",
-        step: "ark_asset_sent",
-        label: "Ark taker sends asset to provider",
-        file: "ark-asset-to-rgb-asset-ark-user-send.json",
-    },
-    StepDef {
-        flow: "ark_asset_to_rgb_asset",
-        step: "provider_swap_registered",
-        label: "provider registers mapped RGB invoice",
+        step: "contract_template",
+        label: "provider creates Ark VHTLC template",
         file: "ark-asset-to-rgb-asset-swap-created.json",
     },
     StepDef {
         flow: "ark_asset_to_rgb_asset",
-        step: "provider_ln_payment",
-        label: "provider pays Lightning invoice",
+        step: "contract_funded",
+        label: "payer funds Ark VHTLC",
+        file: "ark-asset-to-rgb-asset-contract-fund.json",
+    },
+    StepDef {
+        flow: "ark_asset_to_rgb_asset",
+        step: "contract_verified",
+        label: "provider verifies funded VHTLC",
+        file: "ark-asset-to-rgb-asset-contract-verify-funded.json",
+    },
+    StepDef {
+        flow: "ark_asset_to_rgb_asset",
+        step: "ln_payment",
+        label: "provider pays RGB/LN invoice",
         file: "ark-asset-to-rgb-asset-provider-pay.json",
     },
     StepDef {
         flow: "ark_asset_to_rgb_asset",
-        step: "rgb_invoice_state",
-        label: "mapped RGB invoice reaches target state",
-        file: "ark-asset-to-rgb-asset-rgb-asset-invoice.json",
+        step: "rgb_claim",
+        label: "RGB maker claims mapped invoice",
+        file: "ark-asset-to-rgb-asset-rgb-claim.json",
     },
     StepDef {
         flow: "ark_asset_to_rgb_asset",
-        step: "rgb_delivery",
-        label: "node4 sends RGB asset to node1",
-        file: "ark-asset-to-rgb-asset-rgb-keysend.json",
+        step: "contract_claimed",
+        label: "provider claims Ark VHTLC",
+        file: "ark-asset-to-rgb-asset-contract-claim.json",
     },
     StepDef {
         flow: "ark_asset_to_rgb_asset",
-        step: "rgb_delivery_succeeded",
-        label: "node1 receives RGB asset payment",
-        file: "ark-asset-to-rgb-asset-rgb-delivery-rgb-payment.json",
-    },
-    StepDef {
-        flow: "ark_asset_to_rgb_asset",
-        step: "rgb_invoice_claimed",
-        label: "node4 claims mapped RGB invoice",
-        file: "ark-asset-to-rgb-asset-claimed-rgb-asset-invoice.json",
+        step: "summary",
+        label: "proof summary recorded",
+        file: "ark-asset-to-rgb-asset-proof-summary.json",
     },
 ];
 
@@ -1107,121 +1064,22 @@ const SETUP_STEPS: &[StepDef] = &[
     },
 ];
 
-const TRUSTLESS_RGB_TO_ARK_STEPS: &[StepDef] = &[
-    StepDef {
-        flow: "trustless_rgb_asset_to_ark_asset",
-        step: "provider_health",
-        label: "provider is reachable",
-        file: "provider-health.json",
-    },
-    StepDef {
-        flow: "trustless_rgb_asset_to_ark_asset",
-        step: "contract_template",
-        label: "provider creates hold invoice and Ark VHTLC template",
-        file: "trustless-rgb-asset-to-ark-asset-swap-created.json",
-    },
-    StepDef {
-        flow: "trustless_rgb_asset_to_ark_asset",
-        step: "rgb_payment_sent",
-        label: "RGB asset payment locks the Lightning leg",
-        file: "trustless-rgb-asset-to-ark-asset-rgb-sendpayment.json",
-    },
-    StepDef {
-        flow: "trustless_rgb_asset_to_ark_asset",
-        step: "contract_funded",
-        label: "provider funds Ark VHTLC",
-        file: "trustless-rgb-asset-to-ark-asset-contract-fund.json",
-    },
-    StepDef {
-        flow: "trustless_rgb_asset_to_ark_asset",
-        step: "contract_claimed",
-        label: "taker claims Ark VHTLC",
-        file: "trustless-rgb-asset-to-ark-asset-contract-claim.json",
-    },
-    StepDef {
-        flow: "trustless_rgb_asset_to_ark_asset",
-        step: "claim_observed",
-        label: "provider settles from observed claim preimage",
-        file: "trustless-rgb-asset-to-ark-asset-observe-claim.json",
-    },
-    StepDef {
-        flow: "trustless_rgb_asset_to_ark_asset",
-        step: "summary",
-        label: "proof summary recorded",
-        file: "trustless-rgb-asset-to-ark-asset-proof-summary.json",
-    },
-];
-
-const TRUSTLESS_ARK_TO_RGB_STEPS: &[StepDef] = &[
-    StepDef {
-        flow: "trustless_ark_asset_to_rgb_asset",
-        step: "rgb_invoice",
-        label: "RGB mapped invoice is created",
-        file: "trustless-ark-asset-to-rgb-asset-rgb-invoice.json",
-    },
-    StepDef {
-        flow: "trustless_ark_asset_to_rgb_asset",
-        step: "contract_template",
-        label: "provider creates Ark VHTLC template",
-        file: "trustless-ark-asset-to-rgb-asset-swap-created.json",
-    },
-    StepDef {
-        flow: "trustless_ark_asset_to_rgb_asset",
-        step: "contract_funded",
-        label: "payer funds Ark VHTLC",
-        file: "trustless-ark-asset-to-rgb-asset-contract-fund.json",
-    },
-    StepDef {
-        flow: "trustless_ark_asset_to_rgb_asset",
-        step: "contract_verified",
-        label: "provider verifies funded VHTLC",
-        file: "trustless-ark-asset-to-rgb-asset-contract-verify-funded.json",
-    },
-    StepDef {
-        flow: "trustless_ark_asset_to_rgb_asset",
-        step: "ln_payment",
-        label: "provider pays RGB/LN invoice",
-        file: "trustless-ark-asset-to-rgb-asset-provider-pay.json",
-    },
-    StepDef {
-        flow: "trustless_ark_asset_to_rgb_asset",
-        step: "rgb_claim",
-        label: "RGB maker claims mapped invoice",
-        file: "trustless-ark-asset-to-rgb-asset-rgb-claim.json",
-    },
-    StepDef {
-        flow: "trustless_ark_asset_to_rgb_asset",
-        step: "contract_claimed",
-        label: "provider claims Ark VHTLC",
-        file: "trustless-ark-asset-to-rgb-asset-contract-claim.json",
-    },
-    StepDef {
-        flow: "trustless_ark_asset_to_rgb_asset",
-        step: "summary",
-        label: "proof summary recorded",
-        file: "trustless-ark-asset-to-rgb-asset-proof-summary.json",
-    },
-];
-
 fn normalize_mode(mode: &str) -> Result<String, ApiError> {
     match mode {
         "setup-assets" => Ok("setup-assets".to_string()),
         "all" => Ok("all".to_string()),
         "rgb-asset-to-ark-asset" | "ln-to-ark" => Ok("rgb-asset-to-ark-asset".to_string()),
         "ark-asset-to-rgb-asset" | "ark-to-ln" => Ok("ark-asset-to-rgb-asset".to_string()),
-        "trustless-all" => Ok("trustless-all".to_string()),
-        "trustless-rgb-asset-to-ark-asset" => Ok("trustless-rgb-asset-to-ark-asset".to_string()),
-        "trustless-ark-asset-to-rgb-asset" => Ok("trustless-ark-asset-to-rgb-asset".to_string()),
         _ => Err(ApiError::bad_request(
-            "mode must be setup-assets, all, rgb-asset-to-ark-asset, ark-asset-to-rgb-asset, trustless-all, trustless-rgb-asset-to-ark-asset, or trustless-ark-asset-to-rgb-asset",
+            "mode must be setup-assets, all, rgb-asset-to-ark-asset, or ark-asset-to-rgb-asset",
         )),
     }
 }
 
-fn is_trustless_mode(mode: &str) -> bool {
+fn is_bridge_mode(mode: &str) -> bool {
     matches!(
         mode,
-        "trustless-all" | "trustless-rgb-asset-to-ark-asset" | "trustless-ark-asset-to-rgb-asset"
+        "all" | "rgb-asset-to-ark-asset" | "ark-asset-to-rgb-asset"
     )
 }
 

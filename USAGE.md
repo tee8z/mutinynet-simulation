@@ -209,9 +209,9 @@ state/tests/lightning-ark-bridge-<mode>-<timestamp>/
 ```
 
 Public-safe proof transcripts live under [docs/proofs/](docs/proofs/).
-The contract-bound VTXO harness is specified in
-[docs/trustless-ark-swap.md](docs/trustless-ark-swap.md). Script artifacts use
-`state/tests/trustless-ark-swap-<mode>-<timestamp>/`; UI artifacts use
+The Ark VHTLC harness is specified in
+[docs/ark-vhtlc-swap.md](docs/ark-vhtlc-swap.md). Script artifacts use
+`state/tests/lightning-ark-bridge-<mode>-<timestamp>/`; UI artifacts use
 `state/bridge-ui/<run-id>/artifacts/`.
 
 ## Bridge UI
@@ -247,7 +247,7 @@ curl -sS -X POST http://127.0.0.1:8091/api/flows/start/ark-asset-to-rgb-asset \
   -H 'Content-Type: application/json' \
   --data '{}' | jq
 
-curl -sS -X POST http://127.0.0.1:8091/api/flows/start/trustless-all \
+curl -sS -X POST http://127.0.0.1:8091/api/flows/start/all \
   -H 'Content-Type: application/json' \
   --data '{}' | jq
 
@@ -258,7 +258,7 @@ The UI wraps the existing bridge harness, writes artifacts under
 `state/bridge-ui/`, and redacts invoices, preimages, addresses, wallet paths,
 pubkeys, route details, and passwords from UI and JSON responses.
 
-Run `setup-assets` before `trustless-all`. It funds the provider and taker Ark
+Run `setup-assets` before `all`. It funds the provider and taker Ark
 gRPC wallets with BTC liquidity and Ark asset inventory for the contract VTXO
 flows.
 

@@ -80,35 +80,6 @@ impl LndClient {
         })
     }
 
-    pub async fn lookup_invoice(&self, payment_hash: &str) -> anyhow::Result<CommandResult> {
-        let hash = decode_hex32("payment_hash", payment_hash)?;
-        let mut client = self.connect().await?;
-        let invoice = self
-            .call(client.lightning().lookup_invoice(lnrpc::PaymentHash {
-                r_hash_str: String::new(),
-                r_hash: hash,
-            }))
-            .await?
-            .into_inner();
-
-        Ok(CommandResult {
-            stdout: json!({
-                "memo": invoice.memo,
-                "payment_request": invoice.payment_request,
-                "r_hash": hex::encode(invoice.r_hash),
-                "value": invoice.value,
-                "settled": invoice.settled,
-                "creation_date": invoice.creation_date,
-                "settle_date": invoice.settle_date,
-                "state": invoice_state_label(invoice.state),
-                "state_code": invoice.state,
-                "amt_paid_sat": invoice.amt_paid_sat,
-                "amt_paid_msat": invoice.amt_paid_msat,
-            }),
-            stderr: String::new(),
-        })
-    }
-
     pub async fn settle_invoice(&self, preimage: &str) -> anyhow::Result<CommandResult> {
         let preimage = decode_hex32("preimage", preimage)?;
         let mut client = self.connect().await?;
@@ -253,16 +224,6 @@ fn decode_hex32(label: &str, value: &str) -> anyhow::Result<Vec<u8>> {
         return Err(anyhow!("{label} must be 32 bytes"));
     }
     Ok(bytes)
-}
-
-fn invoice_state_label(state: i32) -> &'static str {
-    match state {
-        0 => "OPEN",
-        1 => "SETTLED",
-        2 => "CANCELED",
-        3 => "ACCEPTED",
-        _ => "UNKNOWN",
-    }
 }
 
 fn payment_status_label(status: i32) -> &'static str {

@@ -30,17 +30,14 @@ BRIDGE_TEST_WAIT_TIMEOUT_SEC="${BRIDGE_TEST_WAIT_TIMEOUT_SEC:-180}"
 
 usage() {
   cat <<'EOF'
-usage: sim-test-lightning-ark-bridge [all|rgb-asset-to-ark-asset|ark-asset-to-rgb-asset|trustless-all|trustless-rgb-asset-to-ark-asset|trustless-ark-asset-to-rgb-asset]
+usage: sim-test-lightning-ark-bridge [all|rgb-asset-to-ark-asset|ark-asset-to-rgb-asset]
 
 Modes:
-  all                                  Run both coordinated asset bridge directions.
-  rgb-asset-to-ark-asset               Pay Ark asset invoice from the RGB-side Lightning edge.
-  ark-asset-to-rgb-asset               Pay RGB-side Lightning invoice from the Ark-side provider edge.
-  trustless-all                        Run both VHTLC-bound asset bridge directions.
-  trustless-rgb-asset-to-ark-asset     RGB/LN hold invoice settles from observed Ark VHTLC claim preimage.
-  trustless-ark-asset-to-rgb-asset     Provider claims Ark VHTLC from Lightning/RGB preimage.
+  all                                  Run both VHTLC-bound asset bridge directions.
+  rgb-asset-to-ark-asset               RGB/LN hold invoice settles from observed Ark VHTLC claim preimage.
+  ark-asset-to-rgb-asset               Provider claims Ark VHTLC from Lightning/RGB preimage.
 
-Backward-compatible aliases:
+Aliases:
   ln-to-ark
   ark-to-ln
 EOF
@@ -56,7 +53,7 @@ if [ "$#" -gt 0 ]; then
   exit 2
 fi
 case "$BRIDGE_TEST_MODE" in
-  all|rgb-asset-to-ark-asset|ark-asset-to-rgb-asset|trustless-all|trustless-rgb-asset-to-ark-asset|trustless-ark-asset-to-rgb-asset|ln-to-ark|ark-to-ln) ;;
+  all|rgb-asset-to-ark-asset|ark-asset-to-rgb-asset|ln-to-ark|ark-to-ln) ;;
   *)
     usage >&2
     exit 2
@@ -68,20 +65,7 @@ case "$BRIDGE_TEST_MODE" in
 esac
 
 if [ -z "${BRIDGE_TEST_OUTPUT_DIR:-}" ]; then
-  case "$BRIDGE_TEST_MODE" in
-    trustless-all)
-      BRIDGE_TEST_OUTPUT_DIR="$STATE_DIR/tests/trustless-ark-swap-all-$(date -u +%Y%m%dT%H%M%SZ)"
-      ;;
-    trustless-rgb-asset-to-ark-asset)
-      BRIDGE_TEST_OUTPUT_DIR="$STATE_DIR/tests/trustless-ark-swap-rgb-asset-to-ark-asset-$(date -u +%Y%m%dT%H%M%SZ)"
-      ;;
-    trustless-ark-asset-to-rgb-asset)
-      BRIDGE_TEST_OUTPUT_DIR="$STATE_DIR/tests/trustless-ark-swap-ark-asset-to-rgb-asset-$(date -u +%Y%m%dT%H%M%SZ)"
-      ;;
-    *)
-      BRIDGE_TEST_OUTPUT_DIR="$STATE_DIR/tests/lightning-ark-bridge-${BRIDGE_TEST_MODE}-$(date -u +%Y%m%dT%H%M%SZ)"
-      ;;
-  esac
+  BRIDGE_TEST_OUTPUT_DIR="$STATE_DIR/tests/lightning-ark-bridge-${BRIDGE_TEST_MODE}-$(date -u +%Y%m%dT%H%M%SZ)"
 fi
 
 mkdir -p "$BRIDGE_TEST_OUTPUT_DIR"
@@ -206,10 +190,10 @@ print(hashlib.sha256(bytes.fromhex(value)).hexdigest())
 PY
 }
 
-require_trustless_commands() {
+require_contract_commands() {
   require_cmd python3
   [ -n "$BRIDGE_TEST_ARK_TAKER_PRIVATE_KEY_HEX" ] ||
-    fail "trustless modes require BRIDGE_TEST_ARK_TAKER_PRIVATE_KEY_HEX"
+    fail "contract swaps require BRIDGE_TEST_ARK_TAKER_PRIVATE_KEY_HEX"
 }
 
 ark_wallet_private_key_hex() {
@@ -264,7 +248,7 @@ json_bool() {
   fi
 }
 
-write_combined_trustless_summary() {
+write_combined_proof_summary() {
   local summary_file="$BRIDGE_TEST_OUTPUT_DIR/proof-summary.json"
   local -a leg_summaries=()
   while IFS= read -r file; do
@@ -300,11 +284,42 @@ assert_ark_wallet_asset_ready() {
     fail "$label Ark wallet lacks asset balance; see $balance_file"
 }
 
+ark_grpc_wallet_body() {
+  local private_key_hex="$1"
+  jq -nc --arg wallet_private_key_hex "$private_key_hex" \
+    '{wallet_private_key_hex:$wallet_private_key_hex}'
+}
+
+assert_ark_grpc_wallet_asset_ready() {
+  local private_key_hex="$1" label="$2" balance_file="$3"
+  provider_post /v1/ark/balance "$(ark_grpc_wallet_body "$private_key_hex")" | save_json "$balance_file" ||
+    fail "$label Ark gRPC wallet is not ready; see $balance_file"
+
+  jq -e \
+    --arg asset_id "$BRIDGE_TEST_ARK_ASSET_ID" \
+    --arg amount "$BRIDGE_TEST_ARK_ASSET_AMOUNT" \
+    '((.stdout.assets // []) | map(select(.asset_id == $asset_id) | (.amount | tonumber)) | add // 0) >= ($amount | tonumber)' \
+    "$balance_file" >/dev/null ||
+    fail "$label Ark gRPC wallet lacks asset balance; run setup-assets and see $balance_file"
+}
+
 assert_provider_ark_ready() {
-  assert_ark_wallet_asset_ready \
-    "$ARK_LND_PROVIDER_ARK_WALLET" \
-    "provider maker" \
-    "$BRIDGE_TEST_OUTPUT_DIR/provider-maker-balance.json"
+  provider_post /v1/ark/balance '{}' | save_json "$BRIDGE_TEST_OUTPUT_DIR/provider-maker-balance.json" ||
+    fail "provider Ark gRPC wallet is not ready; see $BRIDGE_TEST_OUTPUT_DIR/provider-maker-balance.json"
+
+  jq -e \
+    --arg asset_id "$BRIDGE_TEST_ARK_ASSET_ID" \
+    --arg amount "$BRIDGE_TEST_ARK_ASSET_AMOUNT" \
+    '((.stdout.assets // []) | map(select(.asset_id == $asset_id) | (.amount | tonumber)) | add // 0) >= ($amount | tonumber)' \
+    "$BRIDGE_TEST_OUTPUT_DIR/provider-maker-balance.json" >/dev/null ||
+    fail "provider Ark gRPC wallet lacks asset balance; run setup-assets and see $BRIDGE_TEST_OUTPUT_DIR/provider-maker-balance.json"
+}
+
+mode_uses_contract_ark_wallet() {
+  case "$BRIDGE_TEST_MODE" in
+    all|ark-asset-to-rgb-asset) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 assert_public_lnd_bridge_channel() {
@@ -387,10 +402,18 @@ assert_ark_to_rgb_ready() {
     fail "set BRIDGE_TEST_ARK_ASSET_ID to an Ark asset held by the Ark payer wallet"
   assert_bridge_edges_ready
   assert_rgb_asset_channel "$BRIDGE_TEST_RGB_MAKER_NODE" "$BRIDGE_TEST_RGB_RECEIVER_NODE" "$BRIDGE_TEST_RGB_ASSET_ID"
-  assert_ark_wallet_asset_ready \
-    "$BRIDGE_TEST_ARK_TAKER_WALLET" \
-    "Ark payer/taker" \
-    "$BRIDGE_TEST_OUTPUT_DIR/ark-payer-balance.json"
+  if mode_uses_contract_ark_wallet; then
+    require_contract_commands
+    assert_ark_grpc_wallet_asset_ready \
+      "$BRIDGE_TEST_ARK_TAKER_PRIVATE_KEY_HEX" \
+      "Ark payer/taker" \
+      "$BRIDGE_TEST_OUTPUT_DIR/ark-payer-balance.json"
+  else
+    assert_ark_wallet_asset_ready \
+      "$BRIDGE_TEST_ARK_TAKER_WALLET" \
+      "Ark payer/taker" \
+      "$BRIDGE_TEST_OUTPUT_DIR/ark-payer-balance.json"
+  fi
 }
 
 wait_for_lnd_invoice_state() {
@@ -651,31 +674,32 @@ run_ark_asset_to_rgb_asset() {
   log "ark-asset-to-rgb-asset: swap $swap_id succeeded"
 }
 
-run_trustless_rgb_asset_to_ark_asset() {
+run_contract_rgb_asset_to_ark_asset() {
   local receive_file recipient pubkey_file ark_claim_pubkey request_file swap_file swap_id bolt11
   local preimage payment_hash now ark_refund_time ln_expiry prepare_file taker_file send_file rgb_maker_pubkey
   local fund_file outpoint claim_request_file claim_file claim_txid observe_file taker_balance_file
+  local rgb_payment_file settled_invoice_file
   local contract_funded contract_claimed preimage_verified ln_or_rgb_settled no_preimage_before_claim
 
-  require_trustless_commands
+  require_contract_commands
 
-  log "trustless-rgb-asset-to-ark-asset: creating Ark claim destination and claim key"
-  receive_file="$BRIDGE_TEST_OUTPUT_DIR/trustless-rgb-asset-to-ark-asset-ark-receive.json"
+  log "rgb-asset-to-ark-asset: creating Ark claim destination and claim key"
+  receive_file="$BRIDGE_TEST_OUTPUT_DIR/rgb-asset-to-ark-asset-ark-receive.json"
   recipient="$(ark_receive_address "$BRIDGE_TEST_ARK_TAKER_WALLET" "$receive_file")"
-  pubkey_file="$BRIDGE_TEST_OUTPUT_DIR/trustless-rgb-asset-to-ark-asset-ark-claim-pubkey.json"
+  pubkey_file="$BRIDGE_TEST_OUTPUT_DIR/rgb-asset-to-ark-asset-ark-claim-pubkey.json"
   ark_contract_pubkey_for_wallet "$BRIDGE_TEST_ARK_TAKER_WALLET" "$pubkey_file"
   ark_claim_pubkey="$(contract_field "$pubkey_file" ark_claim_pubkey)"
 
   preimage="$(random_preimage_hex)"
   payment_hash="$(sha256_hex32 "$preimage")"
   now="$(date +%s)"
-  ark_refund_time="$((now + ${BRIDGE_TEST_TRUSTLESS_LN_TO_ARK_REFUND_SEC:-600}))"
-  ln_expiry="$((now + ${BRIDGE_TEST_TRUSTLESS_LN_TO_ARK_EXPIRY_SEC:-900}))"
+  ark_refund_time="$((now + ${BRIDGE_TEST_LN_TO_ARK_REFUND_SEC:-600}))"
+  ln_expiry="$((now + ${BRIDGE_TEST_LN_TO_ARK_EXPIRY_SEC:-900}))"
   [ "$ark_refund_time" -lt "$ln_expiry" ] ||
-    fail "trustless ln-to-ark requires BRIDGE_TEST_TRUSTLESS_LN_TO_ARK_REFUND_SEC < BRIDGE_TEST_TRUSTLESS_LN_TO_ARK_EXPIRY_SEC"
+    fail "ln-to-ark requires BRIDGE_TEST_LN_TO_ARK_REFUND_SEC < BRIDGE_TEST_LN_TO_ARK_EXPIRY_SEC"
 
-  log "trustless-rgb-asset-to-ark-asset: creating preimage-hash hold invoice and Ark VHTLC template"
-  request_file="$BRIDGE_TEST_OUTPUT_DIR/trustless-rgb-asset-to-ark-asset-request.json"
+  log "rgb-asset-to-ark-asset: creating preimage-hash hold invoice and Ark VHTLC template"
+  request_file="$BRIDGE_TEST_OUTPUT_DIR/rgb-asset-to-ark-asset-request.json"
   jq -nc \
     --argjson amount_sat "$BRIDGE_TEST_LN_TO_ARK_SATS" \
     --arg preimage_hash "$payment_hash" \
@@ -685,27 +709,27 @@ run_trustless_rgb_asset_to_ark_asset() {
     --argjson ark_refund_time "$ark_refund_time" \
     --argjson ln_expiry "$ln_expiry" \
     '{
-      trustless:true,
+      contract:true,
       amount_sat:$amount_sat,
-      memo:"mutinynet-simulation trustless rgb-asset-to-ark-asset bridge test",
+      memo:"mutinynet-simulation rgb-asset-to-ark-asset bridge test",
       preimage_hash:$preimage_hash,
       asset_id:$asset_id,
       asset_amount:$asset_amount,
       ark_claim_pubkey:$ark_claim_pubkey,
       ark_refund_time:$ark_refund_time,
       ln_expiry:$ln_expiry,
-      metadata:{test:"trustless-ark-swap", leg:"rgb-asset-to-ark-asset", provider_leg:"ln-to-ark", trustless:true}
+      metadata:{test:"ark-vhtlc-swap", leg:"rgb-asset-to-ark-asset", provider_leg:"ln-to-ark", contract:true}
     }' >"$request_file"
 
-  swap_file="$BRIDGE_TEST_OUTPUT_DIR/trustless-rgb-asset-to-ark-asset-swap-created.json"
+  swap_file="$BRIDGE_TEST_OUTPUT_DIR/rgb-asset-to-ark-asset-swap-created.json"
   provider_post_file /v1/swaps/ln-to-ark "$request_file" | save_json "$swap_file"
   swap_id="$(jq -er .id "$swap_file")"
   bolt11="$(jq -er .bolt11 "$swap_file")"
   jq -e '.preimage == null and .preimage_hash_sha256 != null and .ark_contract_address != null' "$swap_file" >/dev/null ||
-    fail "trustless swap leaked a preimage or did not create a contract template; see $swap_file"
+    fail "swap leaked a preimage or did not create a contract template; see $swap_file"
 
-  log "trustless-rgb-asset-to-ark-asset: preparing RGB asset swap payment"
-  prepare_file="$BRIDGE_TEST_OUTPUT_DIR/trustless-rgb-asset-to-ark-asset-rgb-prepare.json"
+  log "rgb-asset-to-ark-asset: preparing RGB asset swap payment"
+  prepare_file="$BRIDGE_TEST_OUTPUT_DIR/rgb-asset-to-ark-asset-rgb-prepare.json"
   api "$BRIDGE_TEST_RGB_PAYER_NODE" POST /prepareassetpayment "$(jq -nc \
     --arg invoice "$bolt11" \
     --arg asset_id "$BRIDGE_TEST_RGB_ASSET_ID" \
@@ -713,13 +737,13 @@ run_trustless_rgb_asset_to_ark_asset() {
     '{invoice:$invoice,amt_msat:null,asset_id:$asset_id,asset_amount:$asset_amount}')" |
     save_json "$prepare_file"
 
-  log "trustless-rgb-asset-to-ark-asset: registering RGB maker swap"
-  taker_file="$BRIDGE_TEST_OUTPUT_DIR/trustless-rgb-asset-to-ark-asset-rgb-maker-taker.json"
+  log "rgb-asset-to-ark-asset: registering RGB maker swap"
+  taker_file="$BRIDGE_TEST_OUTPUT_DIR/rgb-asset-to-ark-asset-rgb-maker-taker.json"
   api "$BRIDGE_TEST_RGB_MAKER_NODE" POST /taker "$(jq -nc --arg swapstring "$(jq -er .swapstring "$prepare_file")" '{swapstring:$swapstring}')" |
     save_json "$taker_file"
 
-  log "trustless-rgb-asset-to-ark-asset: paying provider hold invoice with RGB asset"
-  send_file="$BRIDGE_TEST_OUTPUT_DIR/trustless-rgb-asset-to-ark-asset-rgb-sendpayment.json"
+  log "rgb-asset-to-ark-asset: paying provider hold invoice with RGB asset"
+  send_file="$BRIDGE_TEST_OUTPUT_DIR/rgb-asset-to-ark-asset-rgb-sendpayment.json"
   rgb_maker_pubkey="$(rln_pubkey "$BRIDGE_TEST_RGB_MAKER_NODE")"
   api "$BRIDGE_TEST_RGB_PAYER_NODE" POST /sendassetpayment "$(jq -nc \
     --arg invoice "$bolt11" \
@@ -733,16 +757,16 @@ run_trustless_rgb_asset_to_ark_asset() {
     "$BRIDGE_TEST_LND_PROVIDER_NODE" \
     "$payment_hash" \
     ACCEPTED \
-    trustless-rgb-asset-to-ark-asset \
+    rgb-asset-to-ark-asset \
     "$BRIDGE_TEST_RGB_PAYER_NODE"
 
-  log "trustless-rgb-asset-to-ark-asset: funding Ark VHTLC from provider maker wallet"
-  fund_file="$BRIDGE_TEST_OUTPUT_DIR/trustless-rgb-asset-to-ark-asset-contract-fund.json"
+  log "rgb-asset-to-ark-asset: funding Ark VHTLC from provider maker wallet"
+  fund_file="$BRIDGE_TEST_OUTPUT_DIR/rgb-asset-to-ark-asset-contract-fund.json"
   provider_post "/v1/swaps/$swap_id/ark-contract/fund" '{}' | save_json "$fund_file"
   outpoint="$(contract_field "$fund_file" ark_vtxo_outpoint)"
 
-  log "trustless-rgb-asset-to-ark-asset: claiming Ark VHTLC from taker wallet"
-  claim_request_file="$BRIDGE_TEST_OUTPUT_DIR/trustless-rgb-asset-to-ark-asset-contract-claim-request.json"
+  log "rgb-asset-to-ark-asset: claiming Ark VHTLC from taker wallet"
+  claim_request_file="$BRIDGE_TEST_OUTPUT_DIR/rgb-asset-to-ark-asset-contract-claim-request.json"
   jq -n \
     --slurpfile swap "$fund_file" \
     --arg preimage "$preimage" \
@@ -761,24 +785,24 @@ run_trustless_rgb_asset_to_ark_asset() {
         destination_address:$destination_address,
         wallet_private_key_hex:$wallet_private_key_hex
       }' >"$claim_request_file"
-  claim_file="$BRIDGE_TEST_OUTPUT_DIR/trustless-rgb-asset-to-ark-asset-contract-claim.json"
+  claim_file="$BRIDGE_TEST_OUTPUT_DIR/rgb-asset-to-ark-asset-contract-claim.json"
   provider_post_file "/v1/swaps/$swap_id/ark-contract/claim" "$claim_request_file" | save_json "$claim_file"
   claim_txid="$(contract_field "$claim_file" ark_claim_txid)"
   [ "$(contract_field "$claim_file" decoded_witness_preimage)" = "$preimage" ] ||
     fail "Ark claim did not reveal the expected preimage; see $claim_file"
 
-  log "trustless-rgb-asset-to-ark-asset: settling hold invoice from observed Ark claim preimage"
-  observe_file="$BRIDGE_TEST_OUTPUT_DIR/trustless-rgb-asset-to-ark-asset-observe-claim.json"
+  log "rgb-asset-to-ark-asset: settling hold invoice from observed Ark claim preimage"
+  observe_file="$BRIDGE_TEST_OUTPUT_DIR/rgb-asset-to-ark-asset-observe-claim.json"
   provider_post "/v1/swaps/$swap_id/ark-contract/observe-claim" "$(jq -nc \
     --arg preimage "$preimage" \
     --arg ark_claim_txid "$claim_txid" \
     '{preimage:$preimage,ark_claim_txid:$ark_claim_txid,settle_ln:true}')" |
     save_json "$observe_file"
 
-  wait_for_rgb_payment_status "$BRIDGE_TEST_RGB_PAYER_NODE" "$payment_hash" Succeeded trustless-rgb-asset-to-ark-asset
-  wait_for_lnd_invoice_state "$BRIDGE_TEST_LND_PROVIDER_NODE" "$payment_hash" SETTLED trustless-rgb-asset-to-ark-asset-settled
+  wait_for_rgb_payment_status "$BRIDGE_TEST_RGB_PAYER_NODE" "$payment_hash" Succeeded rgb-asset-to-ark-asset
+  wait_for_lnd_invoice_state "$BRIDGE_TEST_LND_PROVIDER_NODE" "$payment_hash" SETTLED rgb-asset-to-ark-asset-settled
 
-  taker_balance_file="$BRIDGE_TEST_OUTPUT_DIR/trustless-rgb-asset-to-ark-asset-taker-balance.json"
+  taker_balance_file="$BRIDGE_TEST_OUTPUT_DIR/rgb-asset-to-ark-asset-taker-balance.json"
   ark_cli "$BRIDGE_TEST_ARK_TAKER_WALLET" balance | save_json "$taker_balance_file" || true
 
   contract_funded="$(json_bool '.ark_vtxo_outpoint != null' "$fund_file")"
@@ -794,7 +818,13 @@ run_trustless_rgb_asset_to_ark_asset() {
     ln_or_rgb_settled=false
   fi
   no_preimage_before_claim="$(json_bool '.preimage == null' "$fund_file")"
+  rgb_payment_file="$BRIDGE_TEST_OUTPUT_DIR/rgb-asset-to-ark-asset-rgb-payment.json"
+  settled_invoice_file="$BRIDGE_TEST_OUTPUT_DIR/rgb-asset-to-ark-asset-settled-lnd-invoice.json"
   jq -nc \
+    --slurpfile swap "$swap_file" \
+    --slurpfile claim "$claim_file" \
+    --slurpfile payment "$rgb_payment_file" \
+    --slurpfile invoice "$settled_invoice_file" \
     --arg leg "rgb-asset-to-ark-asset" \
     --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg swap_id "$swap_id" \
@@ -806,7 +836,15 @@ run_trustless_rgb_asset_to_ark_asset() {
     --argjson preimage_verified "$preimage_verified" \
     --argjson ln_or_rgb_settled "$ln_or_rgb_settled" \
     --argjson no_preimage_before_claim "$no_preimage_before_claim" \
-    '{
+    'def n($v): if $v == null then null else ($v|tonumber) end;
+    def delta($end;$start): if $end == null or $start == null then null else ($end - $start) end;
+    def maxp($vals): ($vals | map(select(. != null)) | max);
+    ($swap[0].created_at | n(.)) as $start |
+    ($claim[0].updated_at | n(.)) as $contract_claimed_at |
+    ($invoice[0].settle_date | n(.)) as $ln_settled_at |
+    ($payment[0].payment.updated_at | n(.)) as $rgb_paid_at |
+    (maxp([$contract_claimed_at,$ln_settled_at,$rgb_paid_at])) as $completed_at |
+    {
       leg:$leg,
       generated_at:$generated_at,
       swap_id:$swap_id,
@@ -820,22 +858,31 @@ run_trustless_rgb_asset_to_ark_asset() {
       refund_test_passed:false,
       refund_test_note:"not run by default; use the contract refund endpoint for timeout-path validation",
       no_direct_ark_send:true,
-      no_preimage_before_claim:$no_preimage_before_claim
-    }' >"$BRIDGE_TEST_OUTPUT_DIR/trustless-rgb-asset-to-ark-asset-proof-summary.json"
+      no_preimage_before_claim:$no_preimage_before_claim,
+      timings:{
+        start_at_unix:$start,
+        completed_at_unix:$completed_at,
+        total_seconds:delta($completed_at;$start),
+        ark_contract_seconds:delta($contract_claimed_at;$start),
+        lightning_settlement_seconds:delta($ln_settled_at;($invoice[0].creation_date | n(.))),
+        rgb_payment_seconds:delta($rgb_paid_at;($payment[0].payment.created_at | n(.)))
+      }
+    }' >"$BRIDGE_TEST_OUTPUT_DIR/rgb-asset-to-ark-asset-proof-summary.json"
 
-  log "trustless-rgb-asset-to-ark-asset: swap $swap_id succeeded"
+  log "rgb-asset-to-ark-asset: swap $swap_id succeeded"
 }
 
-run_trustless_ark_asset_to_rgb_asset() {
+run_contract_ark_asset_to_rgb_asset() {
   local invoice_file bolt11 payment_hash ln_expiry request_file swap_file swap_id status
   local rgb_receiver_pubkey pubkey_file ark_refund_pubkey now ark_refund_time fund_request_file fund_file outpoint
   local verify_file pay_file pay_pid asset_send_file asset_payment_hash claim_file claimed_invoice_file preimage provider_receive_file provider_recipient
+  local asset_delivery_file
   local contract_claim_file contract_funded contract_claimed preimage_verified ln_or_rgb_settled no_preimage_before_claim
 
-  require_trustless_commands
+  require_contract_commands
 
-  log "trustless-ark-asset-to-rgb-asset: creating RGB mapped BTC invoice"
-  invoice_file="$BRIDGE_TEST_OUTPUT_DIR/trustless-ark-asset-to-rgb-asset-rgb-invoice.json"
+  log "ark-asset-to-rgb-asset: creating RGB mapped BTC invoice"
+  invoice_file="$BRIDGE_TEST_OUTPUT_DIR/ark-asset-to-rgb-asset-rgb-invoice.json"
   rgb_receiver_pubkey="$(rln_pubkey "$BRIDGE_TEST_RGB_RECEIVER_NODE")"
   api "$BRIDGE_TEST_RGB_MAKER_NODE" POST /assetinvoice "$(jq -nc \
     --argjson amt_msat "$((BRIDGE_TEST_ARK_TO_RGB_SATS * 1000))" \
@@ -848,17 +895,17 @@ run_trustless_ark_asset_to_rgb_asset() {
   payment_hash="$(jq -er .payment_hash "$invoice_file")"
   ln_expiry="$(jq -er '((.timestamp // .created_at) + (.expiry_sec // 900)) | floor' "$invoice_file")"
 
-  log "trustless-ark-asset-to-rgb-asset: creating payer refund key"
-  pubkey_file="$BRIDGE_TEST_OUTPUT_DIR/trustless-ark-asset-to-rgb-asset-ark-refund-pubkey.json"
+  log "ark-asset-to-rgb-asset: creating payer refund key"
+  pubkey_file="$BRIDGE_TEST_OUTPUT_DIR/ark-asset-to-rgb-asset-ark-refund-pubkey.json"
   ark_contract_pubkey_for_wallet "$BRIDGE_TEST_ARK_TAKER_WALLET" "$pubkey_file"
   ark_refund_pubkey="$(contract_field "$pubkey_file" ark_refund_pubkey)"
   now="$(date +%s)"
-  ark_refund_time="$((ln_expiry + ${BRIDGE_TEST_TRUSTLESS_ARK_TO_RGB_REFUND_AFTER_EXPIRY_SEC:-600}))"
+  ark_refund_time="$((ln_expiry + ${BRIDGE_TEST_ARK_TO_RGB_REFUND_AFTER_EXPIRY_SEC:-600}))"
   [ "$now" -lt "$ln_expiry" ] ||
     fail "RGB/LN invoice is already expired; see $invoice_file"
 
-  log "trustless-ark-asset-to-rgb-asset: registering RGB invoice with provider and creating Ark VHTLC template"
-  request_file="$BRIDGE_TEST_OUTPUT_DIR/trustless-ark-asset-to-rgb-asset-request.json"
+  log "ark-asset-to-rgb-asset: registering RGB invoice with provider and creating Ark VHTLC template"
+  request_file="$BRIDGE_TEST_OUTPUT_DIR/ark-asset-to-rgb-asset-request.json"
   jq -nc \
     --arg bolt11 "$bolt11" \
     --argjson amount_sat "$BRIDGE_TEST_ARK_TO_RGB_SATS" \
@@ -869,7 +916,7 @@ run_trustless_ark_asset_to_rgb_asset() {
     --argjson ln_expiry "$ln_expiry" \
     --argjson fee_limit_sat "$BRIDGE_TEST_FEE_LIMIT_SAT" \
     '{
-      trustless:true,
+      contract:true,
       bolt11:$bolt11,
       amount_sat:$amount_sat,
       asset_id:$asset_id,
@@ -879,17 +926,17 @@ run_trustless_ark_asset_to_rgb_asset() {
       ln_expiry:$ln_expiry,
       execute:false,
       fee_limit_sat:$fee_limit_sat,
-      metadata:{test:"trustless-ark-swap", leg:"ark-asset-to-rgb-asset", provider_leg:"ark-to-ln", trustless:true, asset_invoice:true}
+      metadata:{test:"ark-vhtlc-swap", leg:"ark-asset-to-rgb-asset", provider_leg:"ark-to-ln", contract:true, asset_invoice:true}
     }' >"$request_file"
 
-  swap_file="$BRIDGE_TEST_OUTPUT_DIR/trustless-ark-asset-to-rgb-asset-swap-created.json"
+  swap_file="$BRIDGE_TEST_OUTPUT_DIR/ark-asset-to-rgb-asset-swap-created.json"
   provider_post_file /v1/swaps/ark-to-ln "$request_file" | save_json "$swap_file"
   swap_id="$(jq -er .id "$swap_file")"
   jq -e '.preimage == null and .preimage_hash_sha256 != null and .ark_contract_address != null' "$swap_file" >/dev/null ||
-    fail "trustless swap leaked a preimage or did not create a contract template; see $swap_file"
+    fail "swap leaked a preimage or did not create a contract template; see $swap_file"
 
-  log "trustless-ark-asset-to-rgb-asset: funding Ark VHTLC from payer wallet"
-  fund_request_file="$BRIDGE_TEST_OUTPUT_DIR/trustless-ark-asset-to-rgb-asset-contract-fund-request.json"
+  log "ark-asset-to-rgb-asset: funding Ark VHTLC from payer wallet"
+  fund_request_file="$BRIDGE_TEST_OUTPUT_DIR/ark-asset-to-rgb-asset-contract-fund-request.json"
   jq -n \
     --slurpfile swap "$swap_file" \
     --arg wallet_private_key_hex "$BRIDGE_TEST_ARK_TAKER_PRIVATE_KEY_HEX" \
@@ -902,29 +949,29 @@ run_trustless_ark_asset_to_rgb_asset() {
         ark_refund_time:($swap[0].ark_refund_time|tonumber),
         wallet_private_key_hex:$wallet_private_key_hex
       }' >"$fund_request_file"
-  fund_file="$BRIDGE_TEST_OUTPUT_DIR/trustless-ark-asset-to-rgb-asset-contract-fund.json"
+  fund_file="$BRIDGE_TEST_OUTPUT_DIR/ark-asset-to-rgb-asset-contract-fund.json"
   provider_post_file "/v1/swaps/$swap_id/ark-contract/fund" "$fund_request_file" | save_json "$fund_file"
   outpoint="$(contract_field "$fund_file" ark_vtxo_outpoint)"
 
-  log "trustless-ark-asset-to-rgb-asset: verifying funded VHTLC before Lightning payment"
-  verify_file="$BRIDGE_TEST_OUTPUT_DIR/trustless-ark-asset-to-rgb-asset-contract-verify-funded.json"
+  log "ark-asset-to-rgb-asset: verifying funded VHTLC before Lightning payment"
+  verify_file="$BRIDGE_TEST_OUTPUT_DIR/ark-asset-to-rgb-asset-contract-verify-funded.json"
   provider_post "/v1/swaps/$swap_id/ark-contract/verify-funded" "$(jq -nc --arg ark_vtxo_outpoint "$outpoint" '{ark_vtxo_outpoint:$ark_vtxo_outpoint}')" |
     save_json "$verify_file"
   jq -e '.ark_vtxo_outpoint != null and .status == "ark_contract_funded"' "$verify_file" >/dev/null ||
     fail "provider did not verify Ark VHTLC funding; see $verify_file"
 
-  log "trustless-ark-asset-to-rgb-asset: starting provider Lightning payment in background"
-  pay_file="$BRIDGE_TEST_OUTPUT_DIR/trustless-ark-asset-to-rgb-asset-provider-pay.json"
+  log "ark-asset-to-rgb-asset: starting provider Lightning payment in background"
+  pay_file="$BRIDGE_TEST_OUTPUT_DIR/ark-asset-to-rgb-asset-provider-pay.json"
   (
     provider_post "/v1/swaps/$swap_id/pay-ln" "$(jq -nc --argjson fee_limit_sat "$BRIDGE_TEST_FEE_LIMIT_SAT" '{fee_limit_sat:$fee_limit_sat}')" |
       save_json "$pay_file"
   ) &
   pay_pid="$!"
 
-  wait_for_rgb_asset_invoice_status "$BRIDGE_TEST_RGB_MAKER_NODE" "$payment_hash" ln_accepted trustless-ark-asset-to-rgb-asset
+  wait_for_rgb_asset_invoice_status "$BRIDGE_TEST_RGB_MAKER_NODE" "$payment_hash" ln_accepted ark-asset-to-rgb-asset
 
-  log "trustless-ark-asset-to-rgb-asset: sending RGB asset to receiver"
-  asset_send_file="$BRIDGE_TEST_OUTPUT_DIR/trustless-ark-asset-to-rgb-asset-rgb-keysend.json"
+  log "ark-asset-to-rgb-asset: sending RGB asset to receiver"
+  asset_send_file="$BRIDGE_TEST_OUTPUT_DIR/ark-asset-to-rgb-asset-rgb-keysend.json"
   api "$BRIDGE_TEST_RGB_MAKER_NODE" POST /keysend "$(jq -nc \
     --arg dest_pubkey "$rgb_receiver_pubkey" \
     --argjson amt_msat "$BRIDGE_TEST_RGB_ASSET_KEYSEND_MSAT" \
@@ -933,31 +980,31 @@ run_trustless_ark_asset_to_rgb_asset() {
     '{dest_pubkey:$dest_pubkey,amt_msat:$amt_msat,asset_id:$asset_id,asset_amount:$asset_amount}')" |
     save_json "$asset_send_file"
   asset_payment_hash="$(jq -er .payment_hash "$asset_send_file")"
-  wait_for_rgb_payment_status "$BRIDGE_TEST_RGB_RECEIVER_NODE" "$asset_payment_hash" Succeeded trustless-ark-asset-to-rgb-asset-rgb-delivery
+  wait_for_rgb_payment_status "$BRIDGE_TEST_RGB_RECEIVER_NODE" "$asset_payment_hash" Succeeded ark-asset-to-rgb-asset-rgb-delivery
 
-  log "trustless-ark-asset-to-rgb-asset: claiming RGB mapped BTC invoice"
-  claim_file="$BRIDGE_TEST_OUTPUT_DIR/trustless-ark-asset-to-rgb-asset-rgb-claim.json"
+  log "ark-asset-to-rgb-asset: claiming RGB mapped BTC invoice"
+  claim_file="$BRIDGE_TEST_OUTPUT_DIR/ark-asset-to-rgb-asset-rgb-claim.json"
   api "$BRIDGE_TEST_RGB_MAKER_NODE" POST /claimassetinvoice "$(jq -nc --arg payment_hash "$payment_hash" '{payment_hash:$payment_hash}')" |
     save_json "$claim_file"
 
   if ! wait "$pay_pid"; then
-    fail "trustless-ark-asset-to-rgb-asset provider pay failed; see $pay_file"
+    fail "ark-asset-to-rgb-asset provider pay failed; see $pay_file"
   fi
   status="$(jq -er .status "$pay_file")"
   [ "$status" = "ln_paid" ] ||
-    fail "trustless-ark-asset-to-rgb-asset provider swap $swap_id ended with status $status; see $pay_file"
+    fail "ark-asset-to-rgb-asset provider swap $swap_id ended with status $status; see $pay_file"
   preimage="$(extract_preimage_from_provider_pay "$pay_file")"
   [ -n "$preimage" ] ||
     fail "provider pay result did not expose a payment preimage; see $pay_file"
   [ "$(sha256_hex32 "$preimage")" = "$payment_hash" ] ||
     fail "provider payment preimage does not match RGB/LN invoice hash; see $pay_file"
 
-  wait_for_rgb_asset_invoice_status "$BRIDGE_TEST_RGB_MAKER_NODE" "$payment_hash" ln_claimed trustless-ark-asset-to-rgb-asset-claimed
+  wait_for_rgb_asset_invoice_status "$BRIDGE_TEST_RGB_MAKER_NODE" "$payment_hash" ln_claimed ark-asset-to-rgb-asset-claimed
 
-  log "trustless-ark-asset-to-rgb-asset: claiming Ark VHTLC from provider wallet"
-  provider_receive_file="$BRIDGE_TEST_OUTPUT_DIR/trustless-ark-asset-to-rgb-asset-provider-receive.json"
+  log "ark-asset-to-rgb-asset: claiming Ark VHTLC from provider wallet"
+  provider_receive_file="$BRIDGE_TEST_OUTPUT_DIR/ark-asset-to-rgb-asset-provider-receive.json"
   provider_recipient="$(ark_receive_address "$ARK_LND_PROVIDER_ARK_WALLET" "$provider_receive_file")"
-  contract_claim_file="$BRIDGE_TEST_OUTPUT_DIR/trustless-ark-asset-to-rgb-asset-contract-claim.json"
+  contract_claim_file="$BRIDGE_TEST_OUTPUT_DIR/ark-asset-to-rgb-asset-contract-claim.json"
   provider_post "/v1/swaps/$swap_id/ark-contract/claim" "$(jq -nc \
     --arg preimage "$preimage" \
     --arg ark_vtxo_outpoint "$outpoint" \
@@ -972,7 +1019,7 @@ run_trustless_ark_asset_to_rgb_asset() {
   else
     preimage_verified=false
   fi
-  claimed_invoice_file="$BRIDGE_TEST_OUTPUT_DIR/trustless-ark-asset-to-rgb-asset-claimed-rgb-asset-invoice.json"
+  claimed_invoice_file="$BRIDGE_TEST_OUTPUT_DIR/ark-asset-to-rgb-asset-claimed-rgb-asset-invoice.json"
   if jq -e '.status == "ln_paid"' "$pay_file" >/dev/null &&
     jq -e '.status == "ln_claimed"' "$claimed_invoice_file" >/dev/null; then
     ln_or_rgb_settled=true
@@ -980,7 +1027,14 @@ run_trustless_ark_asset_to_rgb_asset() {
     ln_or_rgb_settled=false
   fi
   no_preimage_before_claim="$(json_bool '.preimage == null' "$verify_file")"
+  asset_delivery_file="$BRIDGE_TEST_OUTPUT_DIR/ark-asset-to-rgb-asset-rgb-delivery-rgb-payment.json"
   jq -nc \
+    --slurpfile swap "$swap_file" \
+    --slurpfile fund "$fund_file" \
+    --slurpfile pay "$pay_file" \
+    --slurpfile claimed_invoice "$claimed_invoice_file" \
+    --slurpfile contract_claim "$contract_claim_file" \
+    --slurpfile asset_delivery "$asset_delivery_file" \
     --arg leg "ark-asset-to-rgb-asset" \
     --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg swap_id "$swap_id" \
@@ -992,7 +1046,16 @@ run_trustless_ark_asset_to_rgb_asset() {
     --argjson preimage_verified "$preimage_verified" \
     --argjson ln_or_rgb_settled "$ln_or_rgb_settled" \
     --argjson no_preimage_before_claim "$no_preimage_before_claim" \
-    '{
+    'def n($v): if $v == null then null else ($v|tonumber) end;
+    def delta($end;$start): if $end == null or $start == null then null else ($end - $start) end;
+    def maxp($vals): ($vals | map(select(. != null)) | max);
+    ($swap[0].created_at | n(.)) as $start |
+    ($fund[0].updated_at | n(.)) as $contract_funded_at |
+    ($pay[0].updated_at | n(.)) as $ln_paid_at |
+    ($claimed_invoice[0].claimed_at | n(.)) as $rgb_claimed_at |
+    ($contract_claim[0].updated_at | n(.)) as $contract_claimed_at |
+    (maxp([$ln_paid_at,$rgb_claimed_at,$contract_claimed_at])) as $completed_at |
+    {
       leg:$leg,
       generated_at:$generated_at,
       swap_id:$swap_id,
@@ -1006,10 +1069,19 @@ run_trustless_ark_asset_to_rgb_asset() {
       refund_test_passed:false,
       refund_test_note:"not run by default; use the contract refund endpoint for timeout-path validation",
       no_direct_ark_send:true,
-      no_preimage_before_claim:$no_preimage_before_claim
-    }' >"$BRIDGE_TEST_OUTPUT_DIR/trustless-ark-asset-to-rgb-asset-proof-summary.json"
+      no_preimage_before_claim:$no_preimage_before_claim,
+      timings:{
+        start_at_unix:$start,
+        completed_at_unix:$completed_at,
+        total_seconds:delta($completed_at;$start),
+        ark_contract_funding_seconds:delta($contract_funded_at;$start),
+        lightning_payment_seconds:delta($ln_paid_at;$start),
+        rgb_invoice_claim_seconds:delta($rgb_claimed_at;($claimed_invoice[0].accepted_at | n(.))),
+        rgb_delivery_seconds:delta(($asset_delivery[0].payment.updated_at | n(.));($asset_delivery[0].payment.created_at | n(.)))
+      }
+    }' >"$BRIDGE_TEST_OUTPUT_DIR/ark-asset-to-rgb-asset-proof-summary.json"
 
-  log "trustless-ark-asset-to-rgb-asset: swap $swap_id succeeded"
+  log "ark-asset-to-rgb-asset: swap $swap_id succeeded"
 }
 
 cat >"$BRIDGE_TEST_OUTPUT_DIR/config.json" <<EOF
@@ -1040,34 +1112,20 @@ log "artifacts: $BRIDGE_TEST_OUTPUT_DIR"
 case "$BRIDGE_TEST_MODE" in
   all)
     assert_rgb_to_ark_ready
-    run_rgb_asset_to_ark_asset
+    run_contract_rgb_asset_to_ark_asset
     assert_ark_to_rgb_ready
-    run_ark_asset_to_rgb_asset
+    run_contract_ark_asset_to_rgb_asset
+    write_combined_proof_summary
     ;;
   rgb-asset-to-ark-asset)
     assert_rgb_to_ark_ready
-    run_rgb_asset_to_ark_asset
+    run_contract_rgb_asset_to_ark_asset
+    write_combined_proof_summary
     ;;
   ark-asset-to-rgb-asset)
     assert_ark_to_rgb_ready
-    run_ark_asset_to_rgb_asset
-    ;;
-  trustless-all)
-    assert_rgb_to_ark_ready
-    run_trustless_rgb_asset_to_ark_asset
-    assert_ark_to_rgb_ready
-    run_trustless_ark_asset_to_rgb_asset
-    write_combined_trustless_summary
-    ;;
-  trustless-rgb-asset-to-ark-asset)
-    assert_rgb_to_ark_ready
-    run_trustless_rgb_asset_to_ark_asset
-    write_combined_trustless_summary
-    ;;
-  trustless-ark-asset-to-rgb-asset)
-    assert_ark_to_rgb_ready
-    run_trustless_ark_asset_to_rgb_asset
-    write_combined_trustless_summary
+    run_contract_ark_asset_to_rgb_asset
+    write_combined_proof_summary
     ;;
 esac
 

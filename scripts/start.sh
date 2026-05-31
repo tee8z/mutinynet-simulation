@@ -514,6 +514,37 @@ start_arkd_wallet() {
   wait_for_arkd_wallet
 }
 
+arkd_admin() {
+  arkd --url "http://127.0.0.1:${ARKD_ADMIN_PORT}" --datadir "$ARKD_DIR" "$@"
+}
+
+ensure_arkd_server_wallet_unlocked() {
+  require_cmd arkd
+  wait_for_tcp 127.0.0.1 "$ARKD_ADMIN_PORT" arkd-admin 120
+
+  if ! arkd_admin wallet balance >/dev/null 2>&1; then
+    echo "creating arkd server wallet"
+    arkd_admin wallet create --password "$ARKD_PASSWORD" || true
+  fi
+
+  echo "unlocking arkd server wallet"
+  arkd_admin wallet unlock --password "$ARKD_PASSWORD" || true
+
+  local start status
+  start="$(date +%s)"
+  while true; do
+    status="$(arkd_admin wallet status 2>/dev/null || true)"
+    if printf '%s\n' "$status" | grep -q '^unlocked: true$'; then
+      return 0
+    fi
+    if [ $(( "$(date +%s)" - start )) -ge 60 ]; then
+      echo "arkd server wallet did not unlock" >&2
+      return 1
+    fi
+    sleep 1
+  done
+}
+
 start_arkd() {
   require_cmd arkd
   start_arkd_wallet
@@ -525,6 +556,7 @@ start_arkd() {
   if [ -f "$pid" ] && kill -0 "$(cat "$pid")" >/dev/null 2>&1; then
     echo "arkd already running: pid $(cat "$pid")"
     wait_for_arkd
+    ensure_arkd_server_wallet_unlocked
     return 0
   fi
 
@@ -547,6 +579,7 @@ start_arkd() {
   echo $! >"$pid"
 
   wait_for_arkd
+  ensure_arkd_server_wallet_unlocked
 }
 
 extract_hex32_secret() {
@@ -596,11 +629,10 @@ start_ark_lnd_provider() {
 
   require_cmd ark-lnd-swap-provider
 
-  local pid log lnd_node lnd_dir lnd_rpcserver lnd_tls lnd_macaroon
+  local pid log lnd_node lnd_rpcserver lnd_tls lnd_macaroon
   pid="$(pid_file ark-lnd-provider)"
   log="$(log_file ark-lnd-provider)"
   lnd_node="$ARK_LND_PROVIDER_LND_NODE"
-  lnd_dir="$(lnd_dir "$lnd_node")"
   lnd_rpcserver="127.0.0.1:$(lnd_rpc_port "$lnd_node")"
   lnd_tls="$(lnd_tls_cert_file "$lnd_node")"
   lnd_macaroon="$(lnd_admin_macaroon_file "$lnd_node")"
@@ -621,9 +653,7 @@ start_ark_lnd_provider() {
   ARK_LND_PROVIDER_BIND="$ARK_LND_PROVIDER_BIND" \
   ARK_LND_PROVIDER_DB="$ARK_LND_PROVIDER_DB" \
   ARK_LND_PROVIDER_COMMAND_TIMEOUT_SEC="$ARK_LND_PROVIDER_COMMAND_TIMEOUT_SEC" \
-  ARK_LND_PROVIDER_LND_DIR="${ARK_LND_PROVIDER_LND_DIR:-$lnd_dir}" \
   ARK_LND_PROVIDER_LND_RPCSERVER="${ARK_LND_PROVIDER_LND_RPCSERVER:-$lnd_rpcserver}" \
-  ARK_LND_PROVIDER_LND_NETWORK="${ARK_LND_PROVIDER_LND_NETWORK:-$LND_NETWORK}" \
   ARK_LND_PROVIDER_LND_TLS_CERT="${ARK_LND_PROVIDER_LND_TLS_CERT:-$lnd_tls}" \
   ARK_LND_PROVIDER_LND_NO_MACAROONS="${ARK_LND_PROVIDER_LND_NO_MACAROONS:-$LND_NO_MACAROONS}" \
   ARK_LND_PROVIDER_LND_MACAROON="${ARK_LND_PROVIDER_LND_MACAROON:-$lnd_macaroon}" \

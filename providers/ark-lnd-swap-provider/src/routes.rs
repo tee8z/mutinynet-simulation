@@ -97,26 +97,26 @@ async fn create_ln_to_ark(
             "amount_sat must be greater than zero",
         ));
     }
-    let trustless = request.trustless.unwrap_or(false);
-    if trustless {
+    let contract = request.contract.unwrap_or(false);
+    if contract {
         if request.preimage.is_some() {
             return Err(ApiError::bad_request(
-                "trustless ln-to-ark must not supply a preimage to the provider",
+                "contract ln-to-ark must not supply a preimage to the provider",
             ));
         }
         if request.preimage_hash.is_none() {
             return Err(ApiError::bad_request(
-                "trustless ln-to-ark requires caller-supplied preimage_hash",
+                "contract ln-to-ark requires caller-supplied preimage_hash",
             ));
         }
         if request.ark_claim_pubkey.is_none() {
             return Err(ApiError::bad_request(
-                "trustless ln-to-ark requires ark_claim_pubkey",
+                "contract ln-to-ark requires ark_claim_pubkey",
             ));
         }
         if request.ark_refund_time.is_none() || request.ln_expiry.is_none() {
             return Err(ApiError::bad_request(
-                "trustless ln-to-ark requires ark_refund_time and ln_expiry",
+                "contract ln-to-ark requires ark_refund_time and ln_expiry",
             ));
         }
         let now = now_unix();
@@ -124,7 +124,7 @@ async fn create_ln_to_ark(
         let ln_expiry = request.ln_expiry.unwrap_or_default();
         if !(now < ark_refund_time && ark_refund_time < ln_expiry) {
             return Err(ApiError::bad_request(
-                "trustless ln-to-ark timeout ordering must be now < ark_refund_time < ln_expiry",
+                "contract ln-to-ark timeout ordering must be now < ark_refund_time < ln_expiry",
             ));
         }
     }
@@ -150,7 +150,7 @@ async fn create_ln_to_ark(
         .await?;
     let bolt11 = payment_request(&ln_result)?;
     let id = Uuid::new_v4().to_string();
-    let ark_refund_pubkey = if trustless {
+    let ark_refund_pubkey = if contract {
         Some(match request.ark_refund_pubkey.clone() {
             Some(value) => value,
             None => provider_contract_pubkey(&state).await?,
@@ -204,7 +204,7 @@ async fn create_ln_to_ark(
             metadata: request.metadata,
         })
         .await?;
-    if trustless {
+    if contract {
         let result = state.ark_contract.template(&row, &template_request).await?;
         row = state
             .store
@@ -227,16 +227,16 @@ async fn create_ark_to_ln(
             "amount_sat must be greater than zero when set",
         ));
     }
-    let trustless = request.trustless.unwrap_or(false);
-    if trustless {
+    let contract = request.contract.unwrap_or(false);
+    if contract {
         if request.ark_refund_pubkey.is_none() {
             return Err(ApiError::bad_request(
-                "trustless ark-to-ln requires payer ark_refund_pubkey",
+                "contract ark-to-ln requires payer ark_refund_pubkey",
             ));
         }
         if request.ark_refund_time.is_none() || request.ln_expiry.is_none() {
             return Err(ApiError::bad_request(
-                "trustless ark-to-ln requires ark_refund_time and ln_expiry",
+                "contract ark-to-ln requires ark_refund_time and ln_expiry",
             ));
         }
         let now = now_unix();
@@ -244,19 +244,19 @@ async fn create_ark_to_ln(
         let ln_expiry = request.ln_expiry.unwrap_or_default();
         if !(now < ln_expiry && ln_expiry < ark_refund_time) {
             return Err(ApiError::bad_request(
-                "trustless ark-to-ln timeout ordering must be now < ln_expiry < ark_refund_time",
+                "contract ark-to-ln timeout ordering must be now < ln_expiry < ark_refund_time",
             ));
         }
     }
 
     let decode = state.lnd.decode_payreq(&request.bolt11).await?;
-    if trustless {
+    if contract {
         if let (Some(requested), Some(decoded)) =
             (request.ln_expiry, decoded_invoice_expiry(&decode))
         {
             if (requested - decoded).abs() > 5 {
                 return Err(ApiError::bad_request(
-                    "trustless ark-to-ln ln_expiry must match the decoded invoice expiry",
+                    "contract ark-to-ln ln_expiry must match the decoded invoice expiry",
                 ));
             }
         }
@@ -267,7 +267,7 @@ async fn create_ark_to_ln(
         .and_then(Value::as_str)
         .map(ToOwned::to_owned);
     let id = Uuid::new_v4().to_string();
-    let ark_claim_pubkey = if trustless {
+    let ark_claim_pubkey = if contract {
         Some(match request.ark_claim_pubkey.clone() {
             Some(value) => value,
             None => provider_contract_pubkey(&state).await?,
@@ -319,7 +319,7 @@ async fn create_ark_to_ln(
             metadata: request.metadata,
         })
         .await?;
-    if trustless {
+    if contract {
         let result = state.ark_contract.template(&row, &template_request).await?;
         row = state
             .store
@@ -342,7 +342,7 @@ async fn settle_ln(
     let row = state.store.load_swap(&id).await?;
     if is_contract_swap(&row) && row.kind == "ln_to_ark" && request.preimage.is_some() {
         return Err(ApiError::bad_request(
-            "trustless ln-to-ark settlement must use the observed Ark claim preimage",
+            "contract ln-to-ark settlement must use the observed Ark claim preimage",
         ));
     }
     let preimage = request
