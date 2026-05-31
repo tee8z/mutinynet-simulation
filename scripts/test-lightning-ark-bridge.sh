@@ -190,8 +190,47 @@ print(hashlib.sha256(bytes.fromhex(value)).hexdigest())
 PY
 }
 
+extract_hex32_secret() {
+  local input key
+  input="$(cat)"
+  key="$(printf '%s' "$input" | jq -r '.private_key // .privateKey // .privkey // .hex // .raw // empty' 2>/dev/null | head -n 1 || true)"
+  if [[ "$key" =~ ^[0-9a-fA-F]{64}$ ]]; then
+    printf '%s\n' "$key"
+    return 0
+  fi
+  printf '%s\n' "$input" | grep -Eo '[0-9a-fA-F]{64}' | head -n 1
+}
+
+ark_cli_private_key_hex() {
+  local wallet="$1" output key
+  output="$(ark_cli "$wallet" dump-privkey --password "$ARK_CLI_PASSWORD" 2>&1)" || {
+    printf '%s\n' "$output" >&2
+    return 1
+  }
+  key="$(printf '%s' "$output" | extract_hex32_secret)"
+  if ! [[ "$key" =~ ^[0-9a-fA-F]{64}$ ]]; then
+    echo "ark $wallet dump-privkey did not return a 32-byte hex private key" >&2
+    return 1
+  fi
+  printf '%s\n' "$key"
+}
+
+ensure_contract_private_keys() {
+  if [ -z "$BRIDGE_TEST_ARK_PROVIDER_PRIVATE_KEY_HEX" ]; then
+    BRIDGE_TEST_ARK_PROVIDER_PRIVATE_KEY_HEX="$(ark_cli_private_key_hex "$ARK_LND_PROVIDER_ARK_WALLET")"
+    export BRIDGE_TEST_ARK_PROVIDER_PRIVATE_KEY_HEX
+  fi
+  if [ -z "$BRIDGE_TEST_ARK_TAKER_PRIVATE_KEY_HEX" ]; then
+    BRIDGE_TEST_ARK_TAKER_PRIVATE_KEY_HEX="$(ark_cli_private_key_hex "$BRIDGE_TEST_ARK_TAKER_WALLET")"
+    export BRIDGE_TEST_ARK_TAKER_PRIVATE_KEY_HEX
+  fi
+}
+
 require_contract_commands() {
   require_cmd python3
+  ensure_contract_private_keys
+  [ -n "$BRIDGE_TEST_ARK_PROVIDER_PRIVATE_KEY_HEX" ] ||
+    fail "contract swaps require BRIDGE_TEST_ARK_PROVIDER_PRIVATE_KEY_HEX"
   [ -n "$BRIDGE_TEST_ARK_TAKER_PRIVATE_KEY_HEX" ] ||
     fail "contract swaps require BRIDGE_TEST_ARK_TAKER_PRIVATE_KEY_HEX"
 }

@@ -10,7 +10,7 @@ The claim path is scoped to Arkade operator/signer, expiry, fee, and watcher ass
 
 The simulation runs the provider, payer, buyer, and RGB maker actions from one harness so the repository can validate the complete message flow. That does not mean the real system is expected to run as one bridge process that owns both wallets.
 
-In the intended wallet-to-wallet shape, each side can be controlled by a different entity. The coordination object is the invoice plus its SHA256 payment hash. A participant that wants the opposite asset can discover or receive the invoice, verify the quote, and satisfy the matching side by paying the Lightning/RGB invoice or funding the Ark VHTLC. Matching, quoting, or discovery can be handled by a service, but custody and swap execution remain with the wallets that own the assets.
+In the intended wallet-to-wallet shape, each side can be controlled by a different entity. The coordination object is the invoice plus its SHA256 payment hash. A participant that wants the opposite asset can receive or discover the invoice, verify the terms, and satisfy the matching side by paying the Lightning/RGB invoice or funding the Ark VHTLC. No bridge or matching service is assumed to custody both wallets or perform both sides of the swap.
 
 ## Runtime Components
 
@@ -160,15 +160,9 @@ scripts/test-lightning-ark-bridge.sh ark-asset-to-rgb-asset
 scripts/test-lightning-ark-bridge.sh all
 ```
 
-Swap runs require the taker wallet key:
+For the local simulation, the setup script and swap harness derive the provider and taker Ark private keys from the configured Ark CLI wallets when the env vars are not set. Set `ARK_LND_PROVIDER_ARK_PRIVATE_KEY_HEX` or `BRIDGE_TEST_ARK_TAKER_PRIVATE_KEY_HEX` only when you need to override those local wallet keys.
 
-```bash
-BRIDGE_TEST_ARK_TAKER_PRIVATE_KEY_HEX=<32-byte-hex-key>
-```
-
-The provider wallet key comes from `ARK_LND_PROVIDER_ARK_PRIVATE_KEY_HEX`. The startup helper can populate that environment value from the local provider Ark CLI wallet during simulation startup.
-
-The bridge UI runs the same harness and derives the local taker key for `setup-assets` and swap runs:
+The bridge UI runs the same harness and uses the same local key derivation for `setup-assets` and swap runs:
 
 ```bash
 sim-start all
@@ -248,7 +242,7 @@ Harness settings:
 
 ```bash
 BRIDGE_TEST_ARK_ASSET_ID=<ark_asset_id>
-BRIDGE_TEST_ARK_TAKER_PRIVATE_KEY_HEX=<32-byte-hex-key>
+BRIDGE_TEST_ARK_TAKER_PRIVATE_KEY_HEX=<optional-32-byte-hex-key-override>
 ```
 
 ## Operational Assumptions

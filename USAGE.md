@@ -254,13 +254,9 @@ curl -sS -X POST http://127.0.0.1:8091/api/flows/start/all \
 curl -sS http://127.0.0.1:8091/api/flows/<run-id> | jq
 ```
 
-The UI wraps the existing bridge harness, writes artifacts under
-`state/bridge-ui/`, and redacts invoices, preimages, addresses, wallet paths,
-pubkeys, route details, and passwords from UI and JSON responses.
+The UI wraps the existing bridge harness, writes artifacts under `state/bridge-ui/`, and redacts invoices, preimages, addresses, wallet paths, pubkeys, route details, and passwords from UI and JSON responses.
 
-Run `setup-assets` before `all`. It funds the provider and taker Ark
-gRPC wallets with BTC liquidity and Ark asset inventory for the contract VTXO
-flows.
+Run `setup-assets` before `all`. It derives the local Ark CLI wallet keys when key env vars are not set, then funds the provider and taker Ark gRPC wallets with BTC liquidity and Ark asset inventory for the contract VTXO flows.
 
 ## Useful Commands
 

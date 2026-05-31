@@ -22,12 +22,18 @@ BRIDGE_SETUP_ARK_PROVIDER_MIN_SATS="${BRIDGE_SETUP_ARK_PROVIDER_MIN_SATS:-5000}"
 BRIDGE_SETUP_ARK_TAKER_AMOUNT="${BRIDGE_SETUP_ARK_TAKER_AMOUNT:-$((BRIDGE_SETUP_ARK_UNIT_AMOUNT * BRIDGE_SETUP_ARK_RESERVE_RUNS))}"
 BRIDGE_SETUP_ARK_TAKER_MIN_SATS="${BRIDGE_SETUP_ARK_TAKER_MIN_SATS:-5000}"
 BRIDGE_SETUP_ARK_TICKER="${BRIDGE_SETUP_ARK_TICKER:-ARKUSD}"
+BRIDGE_TEST_ARK_TAKER_WALLET="${BRIDGE_TEST_ARK_TAKER_WALLET:-taker}"
 BRIDGE_TEST_LND_RGB_NODE="${BRIDGE_TEST_LND_RGB_NODE:-lnd1}"
 BRIDGE_TEST_LND_PROVIDER_NODE="${BRIDGE_TEST_LND_PROVIDER_NODE:-$ARK_LND_PROVIDER_LND_NODE}"
 BRIDGE_TEST_LN_TO_ARK_SATS="${BRIDGE_TEST_LN_TO_ARK_SATS:-6000}"
 BRIDGE_SETUP_LND_MIN_OUTBOUND_SATS="${BRIDGE_SETUP_LND_MIN_OUTBOUND_SATS:-20000}"
 BRIDGE_SETUP_LND_REBALANCE_SATS="${BRIDGE_SETUP_LND_REBALANCE_SATS:-20000}"
 BRIDGE_SETUP_LND_REBALANCE_FEE_LIMIT_SAT="${BRIDGE_SETUP_LND_REBALANCE_FEE_LIMIT_SAT:-20}"
+RGB_MM_RGB_CHANNEL_CAPACITY_SAT="${RGB_MM_RGB_CHANNEL_CAPACITY_SAT:-100000}"
+BRIDGE_SETUP_RGB_COLORABLE_UTXO_SATS="${BRIDGE_SETUP_RGB_COLORABLE_UTXO_SATS:-$((RGB_MM_RGB_CHANNEL_CAPACITY_SAT + 50000))}"
+BRIDGE_SETUP_RGB_COLORABLE_UTXO_COUNT="${BRIDGE_SETUP_RGB_COLORABLE_UTXO_COUNT:-1}"
+BRIDGE_SETUP_RGB_COLORABLE_FEE_RATE="${BRIDGE_SETUP_RGB_COLORABLE_FEE_RATE:-7}"
+export RGB_MM_RGB_CHANNEL_CAPACITY_SAT
 
 mkdir -p "$BRIDGE_SETUP_OUTPUT_DIR"
 
@@ -46,6 +52,39 @@ extract_rgb_asset_id() {
 
 extract_ark_asset_id() {
   jq -er '.asset_id // .assetId // .asset.id // .id'
+}
+
+extract_hex32_secret() {
+  local input key
+  input="$(cat)"
+  key="$(printf '%s' "$input" | jq -r '.private_key // .privateKey // .privkey // .hex // .raw // empty' 2>/dev/null | head -n 1 || true)"
+  if [[ "$key" =~ ^[0-9a-fA-F]{64}$ ]]; then
+    printf '%s\n' "$key"
+    return 0
+  fi
+  printf '%s\n' "$input" | grep -Eo '[0-9a-fA-F]{64}' | head -n 1
+}
+
+ark_cli_private_key_hex() {
+  local wallet="$1" output key
+  output="$(ark_cli "$wallet" dump-privkey --password "$ARK_CLI_PASSWORD" 2>&1)" || {
+    printf '%s\n' "$output" >&2
+    return 1
+  }
+  key="$(printf '%s' "$output" | extract_hex32_secret)"
+  if ! [[ "$key" =~ ^[0-9a-fA-F]{64}$ ]]; then
+    echo "ark $wallet dump-privkey did not return a 32-byte hex private key" >&2
+    return 1
+  fi
+  printf '%s\n' "$key"
+}
+
+ensure_taker_private_key() {
+  if [ -n "${BRIDGE_TEST_ARK_TAKER_PRIVATE_KEY_HEX:-}" ]; then
+    return 0
+  fi
+  BRIDGE_TEST_ARK_TAKER_PRIVATE_KEY_HEX="$(ark_cli_private_key_hex "$BRIDGE_TEST_ARK_TAKER_WALLET")"
+  export BRIDGE_TEST_ARK_TAKER_PRIVATE_KEY_HEX
 }
 
 ark_receive_address() {
@@ -279,26 +318,31 @@ ensure_provider_ark_asset() {
 }
 
 node_has_colorable_utxo() {
-  local node="$1"
+  local node="$1" min_sats="$2"
   api "$node" POST /listunspents '{"skip_sync":false}' | jq -e \
-    '[.unspents[]? | select((.utxo.colorable == true) and ((.rgb_allocations // []) | length == 0))] | length > 0' \
+    --argjson min_sats "$min_sats" \
+    '[.unspents[]? | select((.utxo.colorable == true) and ((.utxo.btc_amount // 0) >= $min_sats) and ((.rgb_allocations // []) | length == 0))] | length > 0' \
     >/dev/null
 }
 
 ensure_colorable_utxos() {
-  local node="$1" create_file="$2" start
-  if node_has_colorable_utxo "$node"; then
-    log "$node already has a colorable RGB UTXO"
+  local node="$1" create_file="$2" min_sats="$3" start
+  if node_has_colorable_utxo "$node" "$min_sats"; then
+    log "$node already has a colorable RGB UTXO large enough for channel funding"
     return 0
   fi
 
   log "creating RGB colorable UTXOs on $node"
-  api "$node" POST /createutxos '{"up_to":false,"num":4,"size":32000,"fee_rate":7,"skip_sync":false}' |
+  api "$node" POST /createutxos "$(jq -nc \
+    --argjson num "$BRIDGE_SETUP_RGB_COLORABLE_UTXO_COUNT" \
+    --argjson size "$min_sats" \
+    --argjson fee_rate "$BRIDGE_SETUP_RGB_COLORABLE_FEE_RATE" \
+    '{up_to:false,num:$num,size:$size,fee_rate:$fee_rate,skip_sync:false}')" |
     save_json "$create_file"
 
   start="$(date +%s)"
   while true; do
-    if node_has_colorable_utxo "$node"; then
+    if node_has_colorable_utxo "$node" "$min_sats"; then
       return 0
     fi
     if [ $(( "$(date +%s)" - start )) -ge "$WAIT_TIMEOUT_SEC" ]; then
@@ -371,7 +415,7 @@ ensure_lnd_bridge_liquidity
 
 rgb_asset_id="${BRIDGE_TEST_RGB_ASSET_ID:-${RGB_MM_ASSET_ID:-}}"
 if [ -z "$rgb_asset_id" ]; then
-  ensure_colorable_utxos node1 "$BRIDGE_SETUP_OUTPUT_DIR/rgb-create-utxos.json"
+  ensure_colorable_utxos node1 "$BRIDGE_SETUP_OUTPUT_DIR/rgb-create-utxos.json" "$BRIDGE_SETUP_RGB_COLORABLE_UTXO_SATS"
   log "issuing RGB asset on node1"
   rgb_issue_file="$BRIDGE_SETUP_OUTPUT_DIR/rgb-issue.json"
   api node1 POST /issueassetnia "$(jq -nc \
@@ -452,24 +496,23 @@ else
   ark_cli taker balance | save_json "$taker_balance_file"
 fi
 
-if [ -n "${BRIDGE_TEST_ARK_TAKER_PRIVATE_KEY_HEX:-}" ]; then
-  ensure_ark_grpc_sats \
-    taker \
-    "$BRIDGE_TEST_ARK_TAKER_PRIVATE_KEY_HEX" \
-    "$BRIDGE_SETUP_ARK_TAKER_MIN_SATS" \
-    "$BRIDGE_SETUP_OUTPUT_DIR/ark-taker-grpc-btc-balance.json" \
-    "$BRIDGE_SETUP_OUTPUT_DIR/ark-taker-grpc-btc-receive.json" \
-    "$BRIDGE_SETUP_OUTPUT_DIR/ark-maker-send-btc-to-taker-grpc.json"
+ensure_taker_private_key
+ensure_ark_grpc_sats \
+  "$BRIDGE_TEST_ARK_TAKER_WALLET" \
+  "$BRIDGE_TEST_ARK_TAKER_PRIVATE_KEY_HEX" \
+  "$BRIDGE_SETUP_ARK_TAKER_MIN_SATS" \
+  "$BRIDGE_SETUP_OUTPUT_DIR/ark-taker-grpc-btc-balance.json" \
+  "$BRIDGE_SETUP_OUTPUT_DIR/ark-taker-grpc-btc-receive.json" \
+  "$BRIDGE_SETUP_OUTPUT_DIR/ark-maker-send-btc-to-taker-grpc.json"
 
-  ensure_ark_grpc_asset \
-    taker \
-    "$BRIDGE_TEST_ARK_TAKER_PRIVATE_KEY_HEX" \
-    "$ark_asset_id" \
-    "$BRIDGE_SETUP_ARK_TAKER_AMOUNT" \
-    "$BRIDGE_SETUP_OUTPUT_DIR/ark-taker-grpc-balance.json" \
-    "$BRIDGE_SETUP_OUTPUT_DIR/ark-taker-grpc-receive.json" \
-    "$BRIDGE_SETUP_OUTPUT_DIR/ark-maker-send-to-taker-grpc.json"
-fi
+ensure_ark_grpc_asset \
+  "$BRIDGE_TEST_ARK_TAKER_WALLET" \
+  "$BRIDGE_TEST_ARK_TAKER_PRIVATE_KEY_HEX" \
+  "$ark_asset_id" \
+  "$BRIDGE_SETUP_ARK_TAKER_AMOUNT" \
+  "$BRIDGE_SETUP_OUTPUT_DIR/ark-taker-grpc-balance.json" \
+  "$BRIDGE_SETUP_OUTPUT_DIR/ark-taker-grpc-receive.json" \
+  "$BRIDGE_SETUP_OUTPUT_DIR/ark-maker-send-to-taker-grpc.json"
 
 jq -nc \
   --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \

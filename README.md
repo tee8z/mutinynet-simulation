@@ -51,7 +51,7 @@ The swap design and acceptance checks are documented in [docs/ark-vhtlc-swap.md]
 
 The local simulation drives both sides so the repo can prove the two swap directions end to end. That is a test harness boundary, not the expected production control model.
 
-In a real wallet flow, the two sides are normally independent wallets controlled by different entities. One wallet creates or discovers an invoice carrying the payment hash, and another wallet accepts the matching quote by either paying the Lightning/RGB invoice or funding the Ark VHTLC. The invoice and its payment hash are the rendezvous point between the participants. A service may index, quote, or help route matches, but it does not need to be a single process that custodies both wallets or performs both sides of the swap.
+In a real wallet flow, the two sides are normally independent wallets controlled by different entities. One wallet creates or discovers an invoice carrying the payment hash, and another wallet accepts the matching quote by either paying the Lightning/RGB invoice or funding the Ark VHTLC. The invoice and its payment hash are the rendezvous point between the participants; no bridge or matching service is assumed to custody both wallets or perform both sides of the swap.
 
 ## Topology
 
@@ -146,3 +146,28 @@ The proof records both directions with `contract_funded`, `contract_claimed`, `p
 | [providers/ark-lnd-swap-provider/](providers/ark-lnd-swap-provider/) | Ark/LND coordinator |
 | [tools/bridge-ui/](tools/bridge-ui/) | Maud-rendered control plane for running bridge flows |
 | [.env.example](.env.example) | documented runtime knobs |
+| [LICENSE](LICENSE) | MIT license |
+
+## Future Work
+
+The current swap path does not require a bridge service that owns both sides of a swap. A quote service can still be useful as an optional wallet UX layer for price discovery, route hints, fees, expiries, and limits while each wallet continues to settle its own BTC/Lightning/RGB or Ark side.
+
+```text
+              quote service
+        price / route / fee / expiry
+                    |
+   +----------------+----------------+
+   |                |                |
+ RGB assets     Ark assets     Taproot Assets
+   |                |                |
+   +----------------+----------------+
+                    |
+              small payment UI
+        choose in -> quote -> pay -> receipt
+```
+
+- Exercise Ark VHTLC refund and timeout paths and publish proof artifacts for those branches.
+- Add a [Taproot Assets](https://github.com/lightninglabs/taproot-assets) example that pays to and from Ark and RGB assets.
+- Add optional quoting for inventory, rates, routes, fees, expiries, and min/max amounts.
+- Extend the bridge UI into a small payment view.
+- Add cleanup helpers for stale channels and RGB/LDK state.
