@@ -234,7 +234,7 @@ status_ark_lnd_provider() {
   echo "  enabled: $ARK_LND_PROVIDER_ENABLED"
   echo "  url: $(ark_lnd_provider_url)"
   echo "  lnd node: $ARK_LND_PROVIDER_LND_NODE"
-  echo "  ark wallet: $ARK_LND_PROVIDER_ARK_WALLET_DIR"
+  echo "  ark server: $ARK_LND_PROVIDER_ARK_SERVER_URL"
   echo "  database: $ARK_LND_PROVIDER_DB"
   echo "  log: $(log_file ark-lnd-provider)"
   print_pid ark-lnd-provider
@@ -243,7 +243,7 @@ status_ark_lnd_provider() {
   local health
   health="$(curl -sS "$(ark_lnd_provider_url)/health" 2>/dev/null || true)"
   if [ -n "$health" ]; then
-    printf '%s\n' "$health" | jq -r '"  health: ok=\(.ok) database=\(.database)\n  lnd: \(.lnd_rpcserver)\n  ark wallet: \(.ark_wallet_dir)"' 2>/dev/null || true
+    printf '%s\n' "$health" | jq -r '"  health: ok=\(.ok) database=\(.database)\n  lnd: \(.lnd_rpcserver)\n  ark server: \(.ark_server_url)\n  ark key configured: \(.ark_wallet_key_configured)"' 2>/dev/null || true
   fi
 }
 

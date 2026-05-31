@@ -6,7 +6,8 @@ use tower_http::trace::TraceLayer;
 use tracing::{error, info};
 
 use crate::{
-    app_state::AppState, ark::ArkClient, config::Settings, lnd::LndClient, routes, store::SwapStore,
+    app_state::AppState, ark::ArkClient, config::Settings, contract::ArkContractClient,
+    lnd::LndClient, routes, store::SwapStore,
 };
 
 pub struct Application {
@@ -18,6 +19,7 @@ impl Application {
         let store = SwapStore::connect(&settings.database).await?;
         let state = AppState {
             ark: ArkClient::new(settings.ark),
+            ark_contract: ArkContractClient::new(settings.ark_contract),
             lnd: LndClient::new(settings.lnd),
             store,
         };

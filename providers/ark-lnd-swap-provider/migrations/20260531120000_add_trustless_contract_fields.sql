@@ -1,0 +1,15 @@
+ALTER TABLE swaps ADD COLUMN preimage_hash_sha256 TEXT;
+ALTER TABLE swaps ADD COLUMN preimage_hash_hash160 TEXT;
+ALTER TABLE swaps ADD COLUMN preimage_source TEXT;
+ALTER TABLE swaps ADD COLUMN ark_contract_address TEXT;
+ALTER TABLE swaps ADD COLUMN ark_contract_script TEXT;
+ALTER TABLE swaps ADD COLUMN ark_tap_tree TEXT;
+ALTER TABLE swaps ADD COLUMN ark_vtxo_outpoint TEXT;
+ALTER TABLE swaps ADD COLUMN ark_claim_pubkey TEXT;
+ALTER TABLE swaps ADD COLUMN ark_refund_pubkey TEXT;
+ALTER TABLE swaps ADD COLUMN ark_refund_time INTEGER;
+ALTER TABLE swaps ADD COLUMN ln_expiry INTEGER;
+ALTER TABLE swaps ADD COLUMN ark_claim_txid TEXT;
+ALTER TABLE swaps ADD COLUMN ark_refund_txid TEXT;
+ALTER TABLE swaps ADD COLUMN ark_contract_result TEXT;
+ALTER TABLE swaps ADD COLUMN proof TEXT;

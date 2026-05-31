@@ -10,9 +10,10 @@ RGB asset <-> Ark asset experiment plan
 
 This setup does not make RGB and Ark mutually aware. It adds a local
 ark-lnd-provider service that treats lnd2 as the Lightning-side swap provider
-and keeps swap state in SQLite while Ark-side asset movement is exercised
-through the Ark CLI. The RGB-side asset swap logic stays inside the RGB
-Lightning node: the Ark provider sees only plain Lightning invoices.
+and keeps swap state in SQLite while Ark-side provider operations use Rust Ark
+gRPC/client code. Simulation bootstrap uses Ark CLI for local wallet setup and
+Ark asset issuance. RGB asset issuance and RGB-side swap logic stay inside the
+RGB Lightning node: the Ark provider sees only plain Lightning invoices.
 
 Forward flow:
   <rgb wallet> -> <rgb asset node> -> <rgb market maker/swap> -> <lnd1> -> <lnd2> -> <ark swap provider> -> <ark>
@@ -50,7 +51,7 @@ Useful commands:
 
 RGB API examples:
 
-  r1 POST /issueassetnia '{"ticker":"USDX","name":"Demo USD","amount":1000,"precision":0}'
+  r1 POST /issueassetnia '{"ticker":"USDX","name":"Demo USD","amounts":[1000],"precision":0}'
   r1 GET /listassets
   r1 GET /nodeinfo
   rmm GET /nodeinfo

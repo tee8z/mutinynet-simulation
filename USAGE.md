@@ -209,9 +209,10 @@ state/tests/lightning-ark-bridge-<mode>-<timestamp>/
 ```
 
 Public-safe proof transcripts live under [docs/proofs/](docs/proofs/).
-The contract-bound VTXO harness is specified in
-[docs/trustless-ark-swap.md](docs/trustless-ark-swap.md) and should use a new
-`state/tests/trustless-ark-swap-<mode>-<timestamp>/` artifact path when added.
+The Ark VHTLC harness is specified in
+[docs/ark-vhtlc-swap.md](docs/ark-vhtlc-swap.md). Script artifacts use
+`state/tests/lightning-ark-bridge-<mode>-<timestamp>/`; UI artifacts use
+`state/bridge-ui/<run-id>/artifacts/`.
 
 ## Bridge UI
 
@@ -234,6 +235,10 @@ xdg-open http://127.0.0.1:8091/
 
 curl -sS http://127.0.0.1:8091/api/cluster | jq
 
+curl -sS -X POST http://127.0.0.1:8091/api/flows/start/setup-assets \
+  -H 'Content-Type: application/json' \
+  --data '{}' | jq
+
 curl -sS -X POST http://127.0.0.1:8091/api/flows/start/rgb-asset-to-ark-asset \
   -H 'Content-Type: application/json' \
   --data '{}' | jq
@@ -242,12 +247,16 @@ curl -sS -X POST http://127.0.0.1:8091/api/flows/start/ark-asset-to-rgb-asset \
   -H 'Content-Type: application/json' \
   --data '{}' | jq
 
+curl -sS -X POST http://127.0.0.1:8091/api/flows/start/all \
+  -H 'Content-Type: application/json' \
+  --data '{}' | jq
+
 curl -sS http://127.0.0.1:8091/api/flows/<run-id> | jq
 ```
 
-The UI wraps the existing bridge harness, writes artifacts under
-`state/bridge-ui/`, and redacts invoices, preimages, addresses, wallet paths,
-pubkeys, route details, and passwords from UI and JSON responses.
+The UI wraps the existing bridge harness, writes artifacts under `state/bridge-ui/`, and redacts invoices, preimages, addresses, wallet paths, pubkeys, route details, and passwords from UI and JSON responses.
+
+Run `setup-assets` before `all`. It derives the local Ark CLI wallet keys when key env vars are not set, then funds the provider and taker Ark gRPC wallets with BTC liquidity and Ark asset inventory for the contract VTXO flows.
 
 ## Useful Commands
 

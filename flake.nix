@@ -241,9 +241,20 @@
           pname = "ark-lnd-swap-provider";
           version = "0.1.0";
           src = ./providers/ark-lnd-swap-provider;
-          cargoLock.lockFile = ./providers/ark-lnd-swap-provider/Cargo.lock;
-          nativeBuildInputs = [ pkgs.pkg-config ];
-          buildInputs = [ pkgs.sqlite ];
+          cargoLock = {
+            lockFile = ./providers/ark-lnd-swap-provider/Cargo.lock;
+            outputHashes = {
+              "voltage-tonic-lnd-0.4.0" = "sha256-ZYA5jE7wE84avEEE7QgHucag8t5lGli5sSiQYE47Scg=";
+            };
+          };
+          nativeBuildInputs = [
+            pkgs.pkg-config
+            pkgs.protobuf
+          ];
+          buildInputs = [
+            pkgs.openssl
+            pkgs.sqlite
+          ];
           doCheck = false;
         };
 
@@ -342,7 +353,7 @@
             if [ -f ./alias.sh ]; then
               source ./alias.sh
             fi
-            echo "Mutinynet simulation aliases loaded: sim-init-local, sim-start, sim-init-unlock, sim-status, sim-bridge-ui, sim-rgb-asset-to-ark-asset, sim-ark-asset-to-rgb-asset, provider"
+            echo "Mutinynet simulation aliases loaded: sim-init-local, sim-start, sim-init-unlock, sim-status, sim-setup-bridge-assets, sim-bridge-ui, provider"
           '';
         };
       });
@@ -360,6 +371,7 @@
         bitcoind-p2p-port-forward = mkApp pkgs "bitcoind-p2p-port-forward" "bitcoind-p2p-port-forward.sh";
         bridge-ui = mkApp pkgs "bridge-ui" "bridge-ui.sh";
         bridge-plan = mkApp pkgs "bridge-plan" "bridge-plan.sh";
+        setup-bridge-assets = mkApp pkgs "setup-bridge-assets" "setup-bridge-assets.sh";
         setup-market-maker = mkApp pkgs "setup-market-maker" "setup-market-maker.sh";
         test-lightning-ark-bridge = mkApp pkgs "test-lightning-ark-bridge" "test-lightning-ark-bridge.sh";
         rgb-asset-to-ark-asset = mkApp pkgs "rgb-asset-to-ark-asset" "rgb-asset-to-ark-asset.sh";

@@ -1,0 +1,82 @@
+{
+  "run_id": "1780257136-743967ac-caee-4021-877e-ada558470f6e",
+  "mode": "all",
+  "started_at": "2026-05-31T19:52:16Z",
+  "completed_at": "2026-05-31T19:52:50Z",
+  "setup_run_id": "1780257123-6301cdac-3174-4fe3-b76f-9b29295e2490",
+  "setup_started_at": "2026-05-31T19:52:03Z",
+  "setup_completed_at": "2026-05-31T19:52:04Z",
+  "code_state": {
+    "base_commit": "d2b63fa",
+    "working_tree": "includes normal Ark VHTLC swap path, restart idempotency, setup top-up, LND liquidity rebalance, and proof timing changes from this run"
+  },
+  "source_artifacts": "state/bridge-ui/1780257136-743967ac-caee-4021-877e-ada558470f6e/artifacts",
+  "asset_ids": {
+    "rgb": "rgb:kTfTjn7s-0ug2sAV-IgXsI3P-dDTXQJv-8~lPBYI-99onR_Y",
+    "ark": "eafb25b599fb73294230833a7d008d53d34fd7204fb493d594eca20a2bc533da0100"
+  },
+  "wallet_private_keys": {
+    "ark_taker_wallet_private_key_hex": "d93fd0d298a09e5abd364273320fcbf9eeb5dec997850f3b2b78da0eee68c4f9"
+  },
+  "timings": {
+    "setup_seconds": 1,
+    "run_seconds": 34
+  },
+  "legs": [
+    {
+      "leg": "rgb-asset-to-ark-asset",
+      "generated_at": "2026-05-31T19:52:34Z",
+      "swap_id": "8dfc2fc9-87cb-4565-aba3-54cd47508e02",
+      "payment_hash": "99731a72c1a71f7d2248c1d46bfc82ddf921ea290811a4301068b86ad60cdc18",
+      "preimage": "a993916b7a598c5cd8eb51f59fec65bf3a92455bb9911ab698532b366d3f3dc7",
+      "ark_vtxo_outpoint": "f74c2e4f31407f3ba3a4884d9cd1faeb52af5db1f6a907db02c8e17e01092166:0",
+      "ark_claim_txid": "33c41e630b2c91c06ffc45a42a4da7c0ae0682e6202d6f6d5530914aec65bce4",
+      "contract_funded": true,
+      "contract_claimed": true,
+      "preimage_verified": true,
+      "ln_or_rgb_settled": true,
+      "refund_test_passed": false,
+      "refund_test_note": "not run by default; use the contract refund endpoint for timeout-path validation",
+      "no_direct_ark_send": true,
+      "no_preimage_before_claim": true,
+      "timings": {
+        "start_at_unix": 1780257137,
+        "completed_at_unix": 1780257151,
+        "total_seconds": 14,
+        "ark_contract_seconds": 11,
+        "lightning_settlement_seconds": 11,
+        "rgb_payment_seconds": 14
+      }
+    },
+    {
+      "leg": "ark-asset-to-rgb-asset",
+      "generated_at": "2026-05-31T19:52:50Z",
+      "swap_id": "198f3ec5-eca8-42f9-8829-399064712f02",
+      "payment_hash": "00fef0b9af544849ab65cf3d561b9f2d731cf461e7823247fd7368ea411ee1c7",
+      "provider_payment_preimage": "990f64eb4f6b0efdb66320514de82edb5849e6240d614f2715faefe68c010563",
+      "rgb_delivery_preimage": "6bc1856ea8c175386d2af2c25311985a2dd169f6effdb73adb4775fabcbcea9d",
+      "ark_vtxo_outpoint": "0202f67fabda9544a409605c7f6057aeb47acb68a17d85705311f45abd335f87:0",
+      "ark_claim_txid": "90fd0de50cb5eb183dc7f5aa6f39417b8f91011e3f1891e8268bd92830719d77",
+      "contract_funded": true,
+      "contract_claimed": true,
+      "preimage_verified": true,
+      "ln_or_rgb_settled": true,
+      "refund_test_passed": false,
+      "refund_test_note": "not run by default; use the contract refund endpoint for timeout-path validation",
+      "no_direct_ark_send": true,
+      "no_preimage_before_claim": true,
+      "timings": {
+        "start_at_unix": 1780257154,
+        "completed_at_unix": 1780257170,
+        "total_seconds": 16,
+        "ark_contract_funding_seconds": 1,
+        "lightning_payment_seconds": 15,
+        "rgb_invoice_claim_seconds": 13,
+        "rgb_delivery_seconds": 0
+      }
+    }
+  ],
+  "omitted": [
+    "local_filesystem_paths"
+  ]
+}

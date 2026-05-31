@@ -189,6 +189,10 @@ ARK_LND_PROVIDER_LND_NODE="${ARK_LND_PROVIDER_LND_NODE:-lnd2}"
 ARK_LND_PROVIDER_ARK_WALLET="${ARK_LND_PROVIDER_ARK_WALLET:-maker}"
 ARK_LND_PROVIDER_ARK_WALLET_DIR="${ARK_LND_PROVIDER_ARK_WALLET_DIR:-$ARK_CLI_DIR/$ARK_LND_PROVIDER_ARK_WALLET}"
 ARK_LND_PROVIDER_COMMAND_TIMEOUT_SEC="${ARK_LND_PROVIDER_COMMAND_TIMEOUT_SEC:-120}"
+ARK_LND_PROVIDER_ARK_SERVER_URL="${ARK_LND_PROVIDER_ARK_SERVER_URL:-http://127.0.0.1:$ARKD_PORT}"
+ARK_LND_PROVIDER_ARK_NETWORK="${ARK_LND_PROVIDER_ARK_NETWORK:-$ARK_NETWORK}"
+ARK_LND_PROVIDER_ARK_PRIVATE_KEY_HEX="${ARK_LND_PROVIDER_ARK_PRIVATE_KEY_HEX:-}"
+ARK_LND_PROVIDER_ARK_CONTRACT_VTXO_SATS="${ARK_LND_PROVIDER_ARK_CONTRACT_VTXO_SATS:-1000}"
 
 FAUCET_PROVIDER="${FAUCET_PROVIDER:-ben}"
 FAUCET_AMOUNT="${FAUCET_AMOUNT:-100000}"
@@ -731,6 +735,21 @@ wait_for_nbxplorer_postgres() {
 
 wait_for_nbxplorer() {
   wait_for_tcp "$NBXPLORER_BIND" "$NBXPLORER_PORT" nbxplorer 180
+
+  local start status
+  start="$(date +%s)"
+  while true; do
+    status="$(curl -fsS "$(nbxplorer_url)/v1/cryptos/BTC/status" 2>/dev/null || true)"
+    if [ -n "$status" ] \
+      && printf '%s' "$status" | jq -e '.isFullySynched == true' >/dev/null 2>&1; then
+      return 0
+    fi
+    if [ $(( "$(date +%s)" - start )) -ge 180 ]; then
+      echo "nbxplorer opened $NBXPLORER_BIND:$NBXPLORER_PORT but BTC API never became ready" >&2
+      return 1
+    fi
+    sleep 2
+  done
 }
 
 wait_for_esplora_http() {

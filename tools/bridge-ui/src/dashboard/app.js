@@ -1,6 +1,9 @@
 const state = {
-  selectedRunId: null,
+  selectedRunId: window.localStorage.getItem("bridge:selected-run-id"),
   pollHandle: null,
+  lastRunStatus: null,
+  runsSignature: "",
+  runningFlowCount: 0,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -59,7 +62,7 @@ function requestBodyFromForm() {
 async function refreshCluster() {
   const grid = $("cluster-grid");
   if (!grid) return;
-  grid.innerHTML = '<div class="empty">Loading cluster state...</div>';
+  showLoadingOnce(grid, "Loading cluster state...");
   try {
     const snapshot = await jsonFetch("/api/cluster");
     grid.innerHTML = snapshot.checks
@@ -84,7 +87,7 @@ async function refreshCluster() {
 async function refreshPreflight() {
   const grid = $("preflight-grid");
   if (!grid) return;
-  grid.innerHTML = '<div class="empty">Loading preflight checks...</div>';
+  showLoadingOnce(grid, "Loading preflight checks...");
   try {
     const snapshot = await jsonFetch("/api/preflight");
     const rows = [
@@ -109,6 +112,44 @@ async function refreshPreflight() {
       .join("");
   } catch (error) {
     grid.innerHTML = `<div class="empty">Preflight failed: ${escapeHtml(error.message)}</div>`;
+  }
+}
+
+function renderCommandStatus(node, snapshot) {
+  const cls = snapshot.ok ? "ok" : "fail";
+  const detail = snapshot.stderr || compactJson(snapshot.stdout);
+  node.innerHTML = `
+    <div class="status-card ${cls}">
+      <strong>${escapeHtml(snapshot.name || "command")}</strong>
+      <div class="meta">${snapshot.ok ? "ready" : "not ready"}</div>
+      ${detail ? `<pre>${escapeHtml(detail)}</pre>` : ""}
+    </div>
+  `;
+}
+
+async function refreshP2p() {
+  const grid = $("p2p-status");
+  if (!grid) return;
+  showLoadingOnce(grid, "Loading P2P tunnel state...");
+  try {
+    renderCommandStatus(grid, await jsonFetch("/api/p2p"));
+  } catch (error) {
+    grid.innerHTML = `<div class="empty">P2P status failed: ${escapeHtml(error.message)}</div>`;
+  }
+}
+
+async function runP2pAction(action) {
+  const grid = $("p2p-status");
+  flash(`${action === "start" ? "Starting" : "Stopping"} P2P tunnel...`);
+  if (grid) grid.innerHTML = '<div class="empty">Updating P2P tunnel...</div>';
+  try {
+    const snapshot = await jsonFetch(`/api/p2p/${action}`, { method: "POST" });
+    if (grid) renderCommandStatus(grid, snapshot);
+    flash(`P2P tunnel ${action} complete`);
+    await refreshCluster();
+  } catch (error) {
+    flash(error.message, true);
+    await refreshP2p();
   }
 }
 
@@ -137,11 +178,22 @@ async function refreshRuns() {
   try {
     const data = await jsonFetch("/api/flows");
     const flows = data.flows || [];
+    state.runningFlowCount = flows.filter((run) => run.status === "running").length;
+    setStartButtonsEnabled(state.runningFlowCount === 0);
     if (flows.length === 0) {
       list.innerHTML = '<div class="empty">No runs yet.</div>';
+      state.runsSignature = "";
       return;
     }
     flows.sort((a, b) => b.started_at_unix - a.started_at_unix);
+    const signature = JSON.stringify(
+      flows.map((run) => [run.id, run.mode, run.status, run.completed_at_unix]),
+    );
+    if (signature === state.runsSignature) {
+      updateRunListSelection();
+      return;
+    }
+    state.runsSignature = signature;
     list.innerHTML = flows
       .map((run) => {
         const active = run.id === state.selectedRunId ? "active" : "";
@@ -162,8 +214,11 @@ async function refreshSelectedRun() {
   if (!state.selectedRunId) return;
   try {
     const run = await jsonFetch(`/api/flows/${state.selectedRunId}`);
+    const previousStatus = state.lastRunStatus;
     renderRun(run);
-    await refreshRuns();
+    if (run.status !== previousStatus || run.status !== "running") {
+      await refreshRuns();
+    }
     if (run.status !== "running") {
       stopPolling();
     }
@@ -175,6 +230,8 @@ async function refreshSelectedRun() {
 
 function renderRun(run) {
   state.selectedRunId = run.id;
+  state.lastRunStatus = run.status;
+  window.localStorage.setItem("bridge:selected-run-id", run.id);
   const label = $("selected-run-label");
   const statePill = $("run-state");
   const timeline = $("timeline-list");
@@ -237,6 +294,25 @@ function stopPolling() {
   }
 }
 
+function showLoadingOnce(node, message) {
+  if (!node.children.length || node.querySelector(".empty")) {
+    node.innerHTML = `<div class="empty">${escapeHtml(message)}</div>`;
+  }
+}
+
+function updateRunListSelection() {
+  document.querySelectorAll("[data-run-id]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.runId === state.selectedRunId);
+  });
+}
+
+function setStartButtonsEnabled(enabled) {
+  document.querySelectorAll("[data-start-flow]").forEach((button) => {
+    button.disabled = !enabled;
+    button.setAttribute("aria-disabled", enabled ? "false" : "true");
+  });
+}
+
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -253,6 +329,12 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  const p2pButton = event.target.closest("[data-p2p-action]");
+  if (p2pButton) {
+    runP2pAction(p2pButton.dataset.p2pAction);
+    return;
+  }
+
   const runButton = event.target.closest("[data-run-id]");
   if (runButton) {
     state.selectedRunId = runButton.dataset.runId;
@@ -263,12 +345,19 @@ document.addEventListener("click", (event) => {
 
 document.addEventListener("DOMContentLoaded", () => {
   $("refresh-cluster")?.addEventListener("click", refreshCluster);
+  $("refresh-p2p")?.addEventListener("click", refreshP2p);
   $("refresh-preflight")?.addEventListener("click", refreshPreflight);
   $("refresh-runs")?.addEventListener("click", refreshRuns);
   refreshCluster();
+  refreshP2p();
   refreshPreflight();
   refreshRuns();
+  if (state.selectedRunId) {
+    refreshSelectedRun();
+    startPolling();
+  }
   window.setInterval(refreshCluster, 15000);
+  window.setInterval(refreshP2p, 15000);
   window.setInterval(refreshPreflight, 15000);
   window.setInterval(refreshRuns, 5000);
 });

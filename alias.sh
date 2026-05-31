@@ -13,16 +13,17 @@ export NODE1_DAEMON_PORT="${NODE1_DAEMON_PORT:-3101}"
 export NODE2_DAEMON_PORT="${NODE2_DAEMON_PORT:-3102}"
 export NODE3_DAEMON_PORT="${NODE3_DAEMON_PORT:-3103}"
 export NODE4_DAEMON_PORT="${NODE4_DAEMON_PORT:-3104}"
+export DATA_DIR="${DATA_DIR:-$MUTINY_SIM_DIR/data}"
 export LND_NETWORK="${LND_NETWORK:-signet}"
 export LND_NO_MACAROONS="${LND_NO_MACAROONS:-1}"
 export LNCLI_BINARY="${LNCLI_BINARY:-lncli}"
-export LND1_DIR="${LND1_DIR:-$MUTINY_SIM_DIR/data/lnd1}"
+export LND1_DIR="${LND1_DIR:-$DATA_DIR/lnd1}"
 export LND1_RPC_PORT="${LND1_RPC_PORT:-11041}"
-export LND2_DIR="${LND2_DIR:-$MUTINY_SIM_DIR/data/lnd2}"
+export LND2_DIR="${LND2_DIR:-$DATA_DIR/lnd2}"
 export LND2_RPC_PORT="${LND2_RPC_PORT:-11042}"
-export ARK_CLI_DIR="${ARK_CLI_DIR:-$MUTINY_SIM_DIR/data/ark-cli}"
+export ARK_CLI_DIR="${ARK_CLI_DIR:-$DATA_DIR/ark-cli}"
 export ARK_CLI_PASSWORD="${ARK_CLI_PASSWORD:-mutinynet-ark-cli-password}"
-export ARKD_DIR="${ARKD_DIR:-$MUTINY_SIM_DIR/data/arkd}"
+export ARKD_DIR="${ARKD_DIR:-$DATA_DIR/arkd}"
 export ARKD_ADMIN_PORT="${ARKD_ADMIN_PORT:-7071}"
 export ARK_LND_PROVIDER_HOST="${ARK_LND_PROVIDER_HOST:-127.0.0.1}"
 export ARK_LND_PROVIDER_PORT="${ARK_LND_PROVIDER_PORT:-8090}"
@@ -114,6 +115,7 @@ sim-faucet-fund() { "$MUTINY_SIM_DIR/scripts/faucet-fund.sh" "$@"; }
 sim-bitcoind-p2p-port-forward() { "$MUTINY_SIM_DIR/scripts/bitcoind-p2p-port-forward.sh" "$@"; }
 sim-bridge-ui() { "$MUTINY_SIM_DIR/scripts/bridge-ui.sh" "$@"; }
 sim-bridge-plan() { "$MUTINY_SIM_DIR/scripts/bridge-plan.sh" "$@"; }
+sim-setup-bridge-assets() { "$MUTINY_SIM_DIR/scripts/setup-bridge-assets.sh" "$@"; }
 sim-setup-market-maker() { "$MUTINY_SIM_DIR/scripts/setup-market-maker.sh" "$@"; }
 sim-test-lightning-ark-bridge() { "$MUTINY_SIM_DIR/scripts/test-lightning-ark-bridge.sh" "$@"; }
 sim-rgb-asset-to-ark-asset() { "$MUTINY_SIM_DIR/scripts/rgb-asset-to-ark-asset.sh" "$@"; }

@@ -145,6 +145,12 @@ h2 {
   border-color: var(--accent);
 }
 
+.button:disabled,
+.button[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .button.primary {
   background: var(--accent);
   border-color: var(--accent);
