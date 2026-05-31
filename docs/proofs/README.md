@@ -1,17 +1,28 @@
 # Ark VHTLC Contract VTXO Proof
 
-This directory is the public proof package for the Ark VHTLC contract VTXO swap flow. It has one README for the whole proof, one machine-readable status file, and one screenshot directory:
-
-```text
-docs/proofs/
-  README.md
-  status-snippets.json
-  screenshots/
-```
+This README is the public proof package for the Ark VHTLC contract VTXO swap flow. It embeds the UI snapshots directly in the flow order so the proof can be read as a single walkthrough.
 
 The proof omits only local filesystem paths that are not portable across machines. Protocol identifiers stay visible when they help prove the run: asset ids, payment hashes, pubkeys, Ark addresses, BOLT11 invoices, swap ids, contract ids, completed-test preimages, and wallet private key material used by the local proof run.
 
-## Run
+## What This Proves
+
+The run proves both asset-swap directions use an Ark contract VTXO, not a direct provider release:
+
+- `rgb-asset-to-ark-asset`: the RGB payer pays a preimage-hash hold invoice. The provider funds an Ark VHTLC using the same payment hash. The taker claims the Ark VHTLC, revealing the preimage. The provider observes that Ark claim preimage and settles the Lightning/RGB invoice.
+- `ark-asset-to-rgb-asset`: the Ark payer funds an Ark VHTLC for a provider-registered RGB/LN invoice. The provider verifies the funded VHTLC before paying the RGB invoice. After the RGB invoice is claimable, the provider uses the revealed preimage to claim the Ark VHTLC.
+
+Both directions completed with:
+
+- `contract_funded: true`
+- `contract_claimed: true`
+- `preimage_verified: true`
+- `ln_or_rgb_settled: true`
+- `no_direct_ark_send: true`
+- `no_preimage_before_claim: true`
+
+Detailed proof fields are in [status-snippets.json](status-snippets.json).
+
+## Run Context
 
 Run mode: `all`
 
@@ -39,13 +50,95 @@ curl -sS -X POST http://127.0.0.1:8091/api/flows/start/all \
   --data '{}'
 ```
 
-## Flow
+## 1. Preflight And Setup
 
-The proof covers both swap directions.
+The UI starts with the cluster health checks, Bitcoin P2P tunnel status, and proof inventory visible. This verifies the local coordinator can see the RGB nodes, LND nodes, Ark wallets, provider service, and external Bitcoin/indexer dependencies before the run starts.
 
-`rgb-asset-to-ark-asset`: the RGB payer pays a preimage-hash hold invoice with RGB asset liquidity. The provider funds an Ark VHTLC using the same payment hash. The taker claims the Ark VHTLC, revealing the preimage. The provider observes the Ark claim preimage and settles the Lightning/RGB invoice.
+![Cluster health and preflight](screenshots/01-overview-preflight.png)
 
-`ark-asset-to-rgb-asset`: the Ark payer funds an Ark VHTLC for a provider-registered RGB/LN invoice. The provider verifies the funded VHTLC before paying the RGB invoice. After the RGB invoice is claimable, the provider uses the revealed preimage to claim the Ark VHTLC.
+The setup and run controls show the active assets and the available setup/run actions.
+
+![Setup and run controls](screenshots/02-setup-and-run-controls.png)
+
+The setup run prepares the inventory required for both swap directions.
+
+![Setup timeline](screenshots/03-setup-timeline.png)
+
+The setup summary confirms the local RGB and Ark asset ids, provider and taker Ark gRPC wallet funding, and Lightning liquidity checks.
+
+![Setup summary](screenshots/04-setup-summary.png)
+
+The setup JSON keeps the machine-readable setup record alongside the visual state.
+
+![Setup JSON details](screenshots/05-setup-json.png)
+
+## 2. Full Swap Run Starts
+
+The `all` run starts both swap directions in one proof run.
+
+![Full run start](screenshots/06-all-run-start.png)
+
+## 3. RGB Asset To Ark Asset
+
+The first leg creates the preimage-hash hold invoice and Ark VHTLC template. The important binding is that the Ark contract and the Lightning/RGB invoice share the same payment hash.
+
+![RGB-to-Ark VHTLC template](screenshots/07-rgb-to-ark-template.png)
+
+The RGB payer pays the provider hold invoice with RGB asset liquidity while the provider funds the Ark VHTLC from its maker wallet.
+
+![RGB-to-Ark payment state](screenshots/08-rgb-to-ark-payment.png)
+
+The proof summary records that the Ark VHTLC was funded and claimed, the preimage was verified, and settlement happened only after the claim revealed the preimage.
+
+![RGB-to-Ark proof summary](screenshots/09-rgb-to-ark-proof-summary.png)
+
+The first leg completes with no direct Ark send and no preimage before claim.
+
+![RGB-to-Ark complete](screenshots/10-rgb-to-ark-complete.png)
+
+## 4. Ark Asset To RGB Asset
+
+The second leg starts from the opposite direction: the Ark payer wants RGB asset delivery and funds the Ark VHTLC first.
+
+![Ark-to-RGB start](screenshots/11-ark-to-rgb-start.png)
+
+The provider creates the Ark VHTLC template for the registered RGB/LN invoice.
+
+![Ark-to-RGB VHTLC template](screenshots/12-ark-to-rgb-template.png)
+
+Before making the Lightning/RGB payment, the provider verifies the Ark VHTLC is funded and matches the expected asset, amount, payment hash, and claim/refund keys.
+
+![Provider verifies funded VHTLC](screenshots/13-provider-verifies-vhtlc.png)
+
+After verification, the provider pays the RGB/LN invoice.
+
+![Provider pays RGB invoice](screenshots/14-provider-pays-rgb-invoice.png)
+
+Once the RGB/LN side reveals the preimage, the provider claims the Ark VHTLC.
+
+![Provider claims Ark VHTLC](screenshots/15-provider-claims-vhtlc.png)
+
+The completion JSON records the final Ark-to-RGB proof fields.
+
+![Ark-to-RGB completion JSON](screenshots/16-ark-to-rgb-complete-json.png)
+
+## 5. Final Evidence
+
+Both swap legs are complete in the same run.
+
+![Both legs complete](screenshots/17-both-legs-complete.png)
+
+The artifact summary shows the proof outputs generated by the run.
+
+![Run artifact summary](screenshots/18-run-artifact-summary.png)
+
+The final proof summary shows both legs with the expected contract, preimage, settlement, and no-direct-send flags.
+
+![Final proof summary](screenshots/19-proof-summary-complete.png)
+
+The final log tail shows the run ended cleanly.
+
+![Final log tail](screenshots/20-log-tail.png)
 
 ## Timing
 
@@ -54,48 +147,12 @@ The setup flow completed in 1 second. The full two-direction swap run completed 
 - `rgb-asset-to-ark-asset`: payment completed in 14 seconds. Ark contract claim and Lightning settlement were observed after 11 seconds; RGB payment success was observed after 14 seconds.
 - `ark-asset-to-rgb-asset`: payment completed in 16 seconds. Ark contract funding was verified after 1 second; provider Lightning payment completed after 15 seconds; RGB invoice claim completed after 13 seconds.
 
-## Evidence
+## Identifiers
 
 Both directions completed:
 
 - `rgb-asset-to-ark-asset`: swap `8dfc2fc9-87cb-4565-aba3-54cd47508e02`
 - `ark-asset-to-rgb-asset`: swap `198f3ec5-eca8-42f9-8829-399064712f02`
-
-Both proof summaries report:
-
-- `contract_funded: true`
-- `contract_claimed: true`
-- `preimage_verified: true`
-- `ln_or_rgb_settled: true`
-- `no_direct_ark_send: true`
-- `no_preimage_before_claim: true`
-
-Detailed proof fields are in [status-snippets.json](status-snippets.json).
-
-## Screenshot Walkthrough
-
-| Step | Screenshot | What It Shows |
-| --- | --- | --- |
-| 1 | [Overview preflight](screenshots/01-overview-preflight.png) | Cluster health and preflight state before the run. |
-| 2 | [Setup and run controls](screenshots/02-setup-and-run-controls.png) | Setup inputs and run controls. |
-| 3 | [Setup timeline](screenshots/03-setup-timeline.png) | Setup flow timeline. |
-| 4 | [Setup summary](screenshots/04-setup-summary.png) | Setup completed and asset/liquidity state summarized. |
-| 5 | [Setup JSON](screenshots/05-setup-json.png) | Setup JSON details. |
-| 6 | [All run start](screenshots/06-all-run-start.png) | Full two-direction swap run starting. |
-| 7 | [RGB-to-Ark template](screenshots/07-rgb-to-ark-template.png) | RGB-to-Ark VHTLC template and funding path. |
-| 8 | [RGB-to-Ark payment](screenshots/08-rgb-to-ark-payment.png) | RGB-to-Ark payment state while the hold invoice and Ark VHTLC coordinate on the same payment hash. |
-| 9 | [RGB-to-Ark proof summary](screenshots/09-rgb-to-ark-proof-summary.png) | RGB-to-Ark proof summary. |
-| 10 | [RGB-to-Ark complete](screenshots/10-rgb-to-ark-complete.png) | RGB-to-Ark completed leg. |
-| 11 | [Ark-to-RGB start](screenshots/11-ark-to-rgb-start.png) | Ark-to-RGB leg start. |
-| 12 | [Ark-to-RGB template](screenshots/12-ark-to-rgb-template.png) | Ark-to-RGB VHTLC template. |
-| 13 | [Provider verifies VHTLC](screenshots/13-provider-verifies-vhtlc.png) | Provider verifies the funded VHTLC before paying the RGB/LN invoice. |
-| 14 | [Provider pays RGB invoice](screenshots/14-provider-pays-rgb-invoice.png) | Provider pays the RGB/LN invoice. |
-| 15 | [Provider claims VHTLC](screenshots/15-provider-claims-vhtlc.png) | Provider claims the Ark VHTLC after the preimage is available. |
-| 16 | [Ark-to-RGB completion JSON](screenshots/16-ark-to-rgb-complete-json.png) | Ark-to-RGB completion JSON. |
-| 17 | [Both legs complete](screenshots/17-both-legs-complete.png) | Both swap legs completed. |
-| 18 | [Run artifact summary](screenshots/18-run-artifact-summary.png) | Run artifact summary. |
-| 19 | [Proof summary complete](screenshots/19-proof-summary-complete.png) | Proof summary after completion. |
-| 20 | [Final log tail](screenshots/20-log-tail.png) | Final log tail. |
 
 ## Acceptance Criteria
 
