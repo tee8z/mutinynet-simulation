@@ -48,16 +48,13 @@ BITCOIND_RPC_PROXY_PORT="${BITCOIND_RPC_PROXY_PORT:-$BITCOIND_RPC_PORT}"
 BITCOIND_RPC_PROXY_TIMEOUT="${BITCOIND_RPC_PROXY_TIMEOUT:-60}"
 BITCOIND_ZMQ_PUB_RAW_BLOCK="${BITCOIND_ZMQ_PUB_RAW_BLOCK:-${BITCOIND_ZMQPUBRAWBLOCK:-}}"
 BITCOIND_ZMQ_PUB_RAW_TX="${BITCOIND_ZMQ_PUB_RAW_TX:-${BITCOIND_ZMQPUBRAWTX:-}}"
-BITCOIND_P2P_TUNNEL_ENABLED="${BITCOIND_P2P_TUNNEL_ENABLED:-${BITCOIND_P2P_PORT_FORWARD_ENABLED:-0}}"
-BITCOIND_P2P_TUNNEL_LOCAL_HOST="${BITCOIND_P2P_TUNNEL_LOCAL_HOST:-${BITCOIND_P2P_PORT_FORWARD_LOCAL_HOST:-127.0.0.1}}"
-BITCOIND_P2P_TUNNEL_LOCAL_PORT="${BITCOIND_P2P_TUNNEL_LOCAL_PORT:-${BITCOIND_P2P_PORT_FORWARD_LOCAL_PORT:-29333}}"
+BITCOIND_P2P_TUNNEL_ENABLED="${BITCOIND_P2P_TUNNEL_ENABLED:-0}"
+BITCOIND_P2P_TUNNEL_LOCAL_HOST="${BITCOIND_P2P_TUNNEL_LOCAL_HOST:-127.0.0.1}"
+BITCOIND_P2P_TUNNEL_LOCAL_PORT="${BITCOIND_P2P_TUNNEL_LOCAL_PORT:-29333}"
 BITCOIND_P2P_TUNNEL_TARGET_HOST="${BITCOIND_P2P_TUNNEL_TARGET_HOST:-}"
 BITCOIND_P2P_TUNNEL_TARGET_PORT="${BITCOIND_P2P_TUNNEL_TARGET_PORT:-$BITCOIND_P2P_PORT}"
 BITCOIND_P2P_TUNNEL_SERVER_NAME="${BITCOIND_P2P_TUNNEL_SERVER_NAME:-$BITCOIND_P2P_TUNNEL_TARGET_HOST}"
 BITCOIND_P2P_TUNNEL_INSECURE_SKIP_VERIFY="${BITCOIND_P2P_TUNNEL_INSECURE_SKIP_VERIFY:-0}"
-BITCOIND_P2P_PORT_FORWARD_ENABLED="$BITCOIND_P2P_TUNNEL_ENABLED"
-BITCOIND_P2P_PORT_FORWARD_LOCAL_HOST="$BITCOIND_P2P_TUNNEL_LOCAL_HOST"
-BITCOIND_P2P_PORT_FORWARD_LOCAL_PORT="$BITCOIND_P2P_TUNNEL_LOCAL_PORT"
 
 if [ "$BITCOIND_MODE" = "local" ]; then
   BITCOIND_RPC_HOST="http://127.0.0.1:$BITCOIND_RPC_PORT"
@@ -263,7 +260,7 @@ wait_for_tcp() {
 pid_file() {
   case "$1" in
     bitcoind) printf '%s/bitcoind.pid' "$RUN_DIR" ;;
-    bitcoind-p2p-tunnel|bitcoind-p2p-port-forward) printf '%s/bitcoind-p2p-tunnel.pid' "$RUN_DIR" ;;
+    bitcoind-p2p-tunnel) printf '%s/bitcoind-p2p-tunnel.pid' "$RUN_DIR" ;;
     bitcoind-rpc-proxy) printf '%s/bitcoind-rpc-proxy.pid' "$RUN_DIR" ;;
     esplora) printf '%s/esplora.pid' "$RUN_DIR" ;;
     nbxplorer-postgres) printf '%s/nbxplorer-postgres.pid' "$RUN_DIR" ;;
@@ -281,7 +278,7 @@ pid_file() {
 log_file() {
   case "$1" in
     bitcoind) printf '%s/bitcoind.log' "$LOG_DIR" ;;
-    bitcoind-p2p-tunnel|bitcoind-p2p-port-forward) printf '%s/bitcoind-p2p-tunnel.log' "$LOG_DIR" ;;
+    bitcoind-p2p-tunnel) printf '%s/bitcoind-p2p-tunnel.log' "$LOG_DIR" ;;
     bitcoind-rpc-proxy) printf '%s/bitcoind-rpc-proxy.log' "$LOG_DIR" ;;
     esplora) printf '%s/esplora.log' "$LOG_DIR" ;;
     nbxplorer-postgres) printf '%s/nbxplorer-postgres.log' "$LOG_DIR" ;;
@@ -306,7 +303,7 @@ services_from_args() {
   for arg in "$@"; do
     case "$arg" in
       bitcoin|bitcoin-core|core|bitcoind) printf 'bitcoind\n' ;;
-      bitcoind-p2p|p2p|p2p-tunnel|bitcoind-p2p-tunnel|bitcoind-p2p-port-forward) printf 'bitcoind-p2p-tunnel\n' ;;
+      bitcoind-p2p|p2p|p2p-tunnel|bitcoind-p2p-tunnel) printf 'bitcoind-p2p-tunnel\n' ;;
       bitcoind-rpc|rpc|bitcoind-rpc-proxy) printf 'bitcoind-rpc-proxy\n' ;;
       esplora|electrs|indexer|rgb-indexer|rln-indexer) printf 'esplora\n' ;;
       nbx-postgres|nbxplorer-postgres|nbxplorer-db) printf 'nbxplorer-postgres\n' ;;

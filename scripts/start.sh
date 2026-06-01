@@ -93,13 +93,14 @@ start_bitcoind_rpc_proxy() {
   fi
 
   echo "starting bitcoind-rpc-proxy $(bitcoind_rpc_proxy_url) -> $target"
+  BITCOIND_TLS_PROXY_MODE=rpc \
   BITCOIND_RPC_TARGET_URL="$target" \
   BITCOIND_RPC_PROXY_HOST="$BITCOIND_RPC_PROXY_HOST" \
   BITCOIND_RPC_PROXY_PORT="$BITCOIND_RPC_PROXY_PORT" \
   BITCOIND_RPC_PROXY_TIMEOUT="$BITCOIND_RPC_PROXY_TIMEOUT" \
   BITCOIND_RPC_USER="$BITCOIND_RPC_USER" \
   BITCOIND_RPC_PASS="$BITCOIND_RPC_PASS" \
-    setsid python3 "$SIM_DIR/scripts/bitcoind-rpc-proxy.py" </dev/null >"$log" 2>&1 &
+    setsid python3 "$SIM_DIR/scripts/bitcoind-tls-proxy.py" </dev/null >"$log" 2>&1 &
   echo $! >"$pid"
 
   wait_for_bitcoind_rpc_proxy

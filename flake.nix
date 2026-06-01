@@ -369,7 +369,6 @@
         faucet-auth = mkApp pkgs "faucet-auth" "faucet-auth.sh";
         faucet-fund = mkApp pkgs "faucet-fund" "faucet-fund.sh";
         bitcoind-p2p-tunnel = mkApp pkgs "bitcoind-p2p-tunnel" "bitcoind-p2p-tunnel.sh";
-        bitcoind-p2p-port-forward = mkApp pkgs "bitcoind-p2p-port-forward" "bitcoind-p2p-port-forward.sh";
         bridge-ui = mkApp pkgs "bridge-ui" "bridge-ui.sh";
         bridge-plan = mkApp pkgs "bridge-plan" "bridge-plan.sh";
         setup-bridge-assets = mkApp pkgs "setup-bridge-assets" "setup-bridge-assets.sh";

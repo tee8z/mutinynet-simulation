@@ -41,7 +41,7 @@ should_stop_bitcoind_p2p_tunnel() {
   local arg
   for arg in "$@"; do
     case "$arg" in
-      all|bitcoin|bitcoin-core|core|bitcoind|bitcoind-p2p|p2p|p2p-tunnel|bitcoind-p2p-tunnel|bitcoind-p2p-port-forward)
+      all|bitcoin|bitcoin-core|core|bitcoind|bitcoind-p2p|p2p|p2p-tunnel|bitcoind-p2p-tunnel)
         return 0
         ;;
     esac
