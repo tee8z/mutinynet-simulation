@@ -148,19 +148,34 @@ BITCOIND_BLOCKFILTERINDEX=1
 BITCOIND_PEERBLOCKFILTERS=1
 ```
 
-## P2P Tunnel
+## Bitcoin TLS Tunnels
 
-For a Core P2P service reachable only through Kubernetes:
+For Voltage-hosted Mutinynet Bitcoin Core nodes, use HTTPS RPC and enable the local TLS/SNI P2P tunnel. Leave `BITCOIND_P2P_HOST` empty so LND neutrino and NBXplorer use the local plaintext tunnel.
 
 ```bash
-BITCOIND_P2P_PORT_FORWARD_ENABLED=1
-BITCOIND_P2P_PORT_FORWARD_NAMESPACE=<namespace>
-BITCOIND_P2P_PORT_FORWARD_SERVICE=<service>
-BITCOIND_P2P_PORT_FORWARD_LOCAL_PORT=29333
-BITCOIND_P2P_PORT_FORWARD_REMOTE_PORT=38333
+BITCOIND_RPC_HOST=https://<node>.b.voltageapp.io
+BITCOIND_RPC_PROXY_ENABLED=auto
+BITCOIND_P2P_TUNNEL_ENABLED=1
+BITCOIND_P2P_TUNNEL_LOCAL_PORT=29333
+BITCOIND_P2P_TUNNEL_TARGET_HOST=<node>.b.voltageapp.io
+BITCOIND_P2P_TUNNEL_TARGET_PORT=38333
 ```
 
-`sim-start all` starts the tunnel when it is enabled.
+`sim-start all` starts enabled tunnels automatically. Use `sim-start p2p`, `sim-status p2p`, and `sim-stop p2p` for focused P2P checks.
+
+If the hosted node exposes both TLS/SNI ZMQ rawblock and rawtx ports, enable the ZMQ tunnel to provide local endpoints for LND bitcoind mode:
+
+```bash
+BITCOIND_ZMQ_TUNNEL_ENABLED=1
+BITCOIND_ZMQ_TUNNEL_LOCAL_HOST=127.0.0.1
+BITCOIND_ZMQ_TUNNEL_RAW_BLOCK_LOCAL_PORT=28332
+BITCOIND_ZMQ_TUNNEL_RAW_TX_LOCAL_PORT=28333
+BITCOIND_ZMQ_TUNNEL_TARGET_HOST=<node>.b.voltageapp.io
+BITCOIND_ZMQ_TUNNEL_RAW_BLOCK_TARGET_PORT=28332
+BITCOIND_ZMQ_TUNNEL_RAW_TX_TARGET_PORT=28333
+```
+
+When enabled, the tunnel fills `BITCOIND_ZMQ_PUB_RAW_BLOCK` and `BITCOIND_ZMQ_PUB_RAW_TX` with the local endpoints unless you set them directly. Use `sim-start zmq`, `sim-status zmq`, and `sim-stop zmq` for focused ZMQ checks.
 
 ## Market Maker
 

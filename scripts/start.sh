@@ -43,8 +43,11 @@ write_bitcoind_config() {
 start_bitcoind() {
   if ! bitcoind_managed; then
     echo "bitcoind external; using $(bitcoind_rpc_target_url)"
-    if [ "$BITCOIND_P2P_PORT_FORWARD_ENABLED" = "1" ]; then
-      "$SIM_DIR/scripts/bitcoind-p2p-port-forward.sh" start
+    if [ "$BITCOIND_P2P_TUNNEL_ENABLED" = "1" ]; then
+      "$SIM_DIR/scripts/bitcoind-p2p-tunnel.sh" start
+    fi
+    if [ "$BITCOIND_ZMQ_TUNNEL_ENABLED" = "1" ]; then
+      "$SIM_DIR/scripts/bitcoind-zmq-tunnel.sh" start
     fi
     return 0
   fi
@@ -93,13 +96,14 @@ start_bitcoind_rpc_proxy() {
   fi
 
   echo "starting bitcoind-rpc-proxy $(bitcoind_rpc_proxy_url) -> $target"
+  BITCOIND_TLS_PROXY_MODE=rpc \
   BITCOIND_RPC_TARGET_URL="$target" \
   BITCOIND_RPC_PROXY_HOST="$BITCOIND_RPC_PROXY_HOST" \
   BITCOIND_RPC_PROXY_PORT="$BITCOIND_RPC_PROXY_PORT" \
   BITCOIND_RPC_PROXY_TIMEOUT="$BITCOIND_RPC_PROXY_TIMEOUT" \
   BITCOIND_RPC_USER="$BITCOIND_RPC_USER" \
   BITCOIND_RPC_PASS="$BITCOIND_RPC_PASS" \
-    setsid python3 "$SIM_DIR/scripts/bitcoind-rpc-proxy.py" </dev/null >"$log" 2>&1 &
+    setsid python3 "$SIM_DIR/scripts/bitcoind-tls-proxy.py" </dev/null >"$log" 2>&1 &
   echo $! >"$pid"
 
   wait_for_bitcoind_rpc_proxy
@@ -276,7 +280,7 @@ start_nbxplorer() {
   esac
   if [ -n "$NBXPLORER_BTCNODEENDPOINT" ]; then
     args+=(--btcnodeendpoint "$NBXPLORER_BTCNODEENDPOINT")
-  elif [ -n "$BITCOIND_P2P_HOST" ]; then
+  elif [ -n "$BITCOIND_P2P_HOST" ] || [ "$BITCOIND_P2P_TUNNEL_ENABLED" = "1" ]; then
     args+=(--btcnodeendpoint "$(bitcoind_p2p_endpoint)")
   fi
 
@@ -671,6 +675,8 @@ start_ark_lnd_provider() {
 while read -r service; do
   case "$service" in
     bitcoind) start_bitcoind ;;
+    bitcoind-p2p-tunnel) "$SIM_DIR/scripts/bitcoind-p2p-tunnel.sh" start ;;
+    bitcoind-zmq-tunnel) "$SIM_DIR/scripts/bitcoind-zmq-tunnel.sh" start ;;
     bitcoind-rpc-proxy) start_bitcoind_rpc_proxy ;;
     esplora) start_esplora ;;
     nbxplorer-postgres) start_nbxplorer_postgres ;;

@@ -46,8 +46,12 @@ status_bitcoind() {
     fi
   else
     echo "  target: ${BITCOIND_RPC_HOST:-missing BITCOIND_RPC_HOST}"
-    if [ -n "${BITCOIND_P2P_HOST:-}" ]; then
+    if [ -n "${BITCOIND_P2P_HOST:-}" ] || [ "$BITCOIND_P2P_TUNNEL_ENABLED" = "1" ]; then
       echo "  p2p: $(bitcoind_p2p_endpoint)"
+    fi
+    if [ -n "$BITCOIND_ZMQ_PUB_RAW_BLOCK" ] && [ -n "$BITCOIND_ZMQ_PUB_RAW_TX" ]; then
+      echo "  zmq rawblock: $BITCOIND_ZMQ_PUB_RAW_BLOCK"
+      echo "  zmq rawtx: $BITCOIND_ZMQ_PUB_RAW_TX"
     fi
   fi
 }
@@ -62,8 +66,12 @@ status_bitcoind_rpc_proxy() {
   fi
   echo "  listen: $(bitcoind_rpc_proxy_url)"
   echo "  effective rpc: $(bitcoind_rpc_service_url)"
-  if [ -n "${BITCOIND_P2P_HOST:-}" ] || [ "$BITCOIND_P2P_PORT_FORWARD_ENABLED" = "1" ]; then
+  if [ -n "${BITCOIND_P2P_HOST:-}" ] || [ "$BITCOIND_P2P_TUNNEL_ENABLED" = "1" ]; then
     echo "  p2p: $(bitcoind_p2p_endpoint)"
+  fi
+  if [ -n "$BITCOIND_ZMQ_PUB_RAW_BLOCK" ] && [ -n "$BITCOIND_ZMQ_PUB_RAW_TX" ]; then
+    echo "  zmq rawblock: $BITCOIND_ZMQ_PUB_RAW_BLOCK"
+    echo "  zmq rawtx: $BITCOIND_ZMQ_PUB_RAW_TX"
   fi
   echo "  log: $(log_file bitcoind-rpc-proxy)"
   print_pid bitcoind-rpc-proxy
@@ -171,7 +179,7 @@ status_lnd_node() {
         echo "  signet block time: $LND_SIGNET_BLOCK_TIME"
       fi
     else
-      echo "  neutrino: missing LND_NEUTRINO_CONNECT or BITCOIND_P2P_HOST"
+      echo "  neutrino: missing LND_NEUTRINO_CONNECT, BITCOIND_P2P_HOST, or BITCOIND_P2P_TUNNEL_ENABLED=1"
     fi
   elif lnd_zmq_enabled; then
     echo "  zmq rawblock: $LND_ZMQ_PUB_RAW_BLOCK"
@@ -250,6 +258,8 @@ status_ark_lnd_provider() {
 while read -r service; do
   case "$service" in
     bitcoind) status_bitcoind ;;
+    bitcoind-p2p-tunnel) "$SIM_DIR/scripts/bitcoind-p2p-tunnel.sh" status ;;
+    bitcoind-zmq-tunnel) "$SIM_DIR/scripts/bitcoind-zmq-tunnel.sh" status ;;
     bitcoind-rpc-proxy) status_bitcoind_rpc_proxy ;;
     esplora) status_esplora ;;
     nbxplorer-postgres) status_nbxplorer_postgres ;;
