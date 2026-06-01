@@ -22,6 +22,7 @@ BRIDGE_SETUP_ARK_PROVIDER_MIN_SATS="${BRIDGE_SETUP_ARK_PROVIDER_MIN_SATS:-5000}"
 BRIDGE_SETUP_ARK_TAKER_AMOUNT="${BRIDGE_SETUP_ARK_TAKER_AMOUNT:-$((BRIDGE_SETUP_ARK_UNIT_AMOUNT * BRIDGE_SETUP_ARK_RESERVE_RUNS))}"
 BRIDGE_SETUP_ARK_TAKER_MIN_SATS="${BRIDGE_SETUP_ARK_TAKER_MIN_SATS:-5000}"
 BRIDGE_SETUP_ARK_TICKER="${BRIDGE_SETUP_ARK_TICKER:-ARKUSD}"
+BRIDGE_TEST_RGB_PAYER_NODE="${BRIDGE_TEST_RGB_PAYER_NODE:-${RGB_MM_ASSET_FUNDER_NODE:-node1}}"
 BRIDGE_TEST_ARK_TAKER_WALLET="${BRIDGE_TEST_ARK_TAKER_WALLET:-taker}"
 BRIDGE_TEST_LND_RGB_NODE="${BRIDGE_TEST_LND_RGB_NODE:-lnd1}"
 BRIDGE_TEST_LND_PROVIDER_NODE="${BRIDGE_TEST_LND_PROVIDER_NODE:-$ARK_LND_PROVIDER_LND_NODE}"
@@ -407,6 +408,86 @@ ensure_lnd_bridge_liquidity() {
   done
 }
 
+rln_pubkey() {
+  api "$1" GET /nodeinfo | jq -r .pubkey
+}
+
+lnd_pubkey() {
+  lnd_cli "$1" getinfo | jq -r .identity_pubkey
+}
+
+rln_has_peer() {
+  local node="$1" peer="$2"
+  api "$node" GET /listpeers | jq -e \
+    --arg peer "$peer" \
+    '[.peers[]? | select(.pubkey == $peer)] | length > 0' \
+    >/dev/null
+}
+
+rln_network_channels() {
+  api "$1" GET /nodeinfo | jq -er '(.network_channels // 0) | tonumber'
+}
+
+connect_rln_to_lnd_gossip_peer() {
+  local node="$1" lnd="$2" lnd_pubkey node_pubkey start
+  wait_for_rln_node "$node"
+  wait_for_lnd_unlocked "$lnd"
+  lnd_pubkey="$(lnd_pubkey "$lnd")"
+  node_pubkey="$(rln_pubkey "$node")"
+
+  if rln_has_peer "$node" "$lnd_pubkey"; then
+    log "$node already connected to $lnd for Lightning gossip"
+    return 0
+  fi
+
+  log "connecting $node to $lnd for Lightning gossip"
+  api "$node" POST /connectpeer "$(jq -nc \
+    --arg peer "${lnd_pubkey}@127.0.0.1:$(lnd_peer_port "$lnd")" \
+    '{peer_pubkey_and_addr:$peer}')" >/dev/null || true
+  lnd_cli "$lnd" connect "${node_pubkey}@127.0.0.1:$(node_peer_port "$node")" --perm >/dev/null 2>&1 || true
+
+  start="$(date +%s)"
+  while true; do
+    if rln_has_peer "$node" "$lnd_pubkey"; then
+      return 0
+    fi
+    if [ $(( "$(date +%s)" - start )) -ge 30 ]; then
+      log "$node did not connect to $lnd for Lightning gossip before timeout"
+      api "$node" GET /listpeers | jq . >&2 || true
+      return 1
+    fi
+    sleep 1
+  done
+}
+
+ensure_rgb_payer_lnd_gossip() {
+  local payer_node="$1" maker_node="$2" target_channels current_channels start
+
+  connect_rln_to_lnd_gossip_peer "$payer_node" "$BRIDGE_TEST_LND_RGB_NODE"
+  if [ "$BRIDGE_TEST_LND_PROVIDER_NODE" != "$BRIDGE_TEST_LND_RGB_NODE" ]; then
+    connect_rln_to_lnd_gossip_peer "$payer_node" "$BRIDGE_TEST_LND_PROVIDER_NODE"
+  fi
+
+  target_channels="$(rln_network_channels "$maker_node")"
+  if [ "$target_channels" -le 0 ]; then
+    return 0
+  fi
+
+  log "waiting for $payer_node Lightning gossip graph to catch up"
+  start="$(date +%s)"
+  while true; do
+    current_channels="$(rln_network_channels "$payer_node")"
+    if [ "$current_channels" -ge "$target_channels" ]; then
+      return 0
+    fi
+    if [ $(( "$(date +%s)" - start )) -ge 60 ]; then
+      log "$payer_node Lightning gossip graph did not catch up before timeout; current=$current_channels target=$target_channels"
+      return 1
+    fi
+    sleep 2
+  done
+}
+
 wait_for_rln_node node1
 wait_for_rln_node node4
 wait_for_arkd
@@ -437,6 +518,9 @@ export BRIDGE_TEST_RGB_ASSET_ID="$rgb_asset_id"
 
 log "setting up RGB market-maker channels"
 "$SIM_DIR/scripts/setup-market-maker.sh" >"$BRIDGE_SETUP_OUTPUT_DIR/market-maker-setup.log" 2>&1
+ensure_rgb_payer_lnd_gossip \
+  "$(node_label "$BRIDGE_TEST_RGB_PAYER_NODE")" \
+  "$(node_label "${RGB_MM_NODE:-node4}")"
 
 ark_asset_id="${BRIDGE_TEST_ARK_ASSET_ID:-${ARK_TEST_ASSET_ID:-}}"
 if [ -z "$ark_asset_id" ]; then

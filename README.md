@@ -133,7 +133,7 @@ BITCOIND_P2P_TUNNEL_TARGET_HOST=<node>.b.voltageapp.io
 BITCOIND_P2P_TUNNEL_TARGET_PORT=38333
 ```
 
-When the P2P hostname matches `BITCOIND_RPC_HOST`, `BITCOIND_P2P_TUNNEL_TARGET_HOST` and `BITCOIND_P2P_TUNNEL_SERVER_NAME` can be omitted. For staging nodes, use the staging hostname, for example `<node>.b.staging.voltageapp.io`.
+When the P2P hostname matches `BITCOIND_RPC_HOST`, `BITCOIND_P2P_TUNNEL_TARGET_HOST` and `BITCOIND_P2P_TUNNEL_SERVER_NAME` can be omitted. Use the public Voltage hostname provided for the node.
 
 If the node exposes both TLS/SNI ZMQ rawblock and rawtx ports, the same proxy can provide local endpoints for LND bitcoind mode:
 

@@ -34,7 +34,7 @@ Source artifacts: `state/bridge-ui/1780257136-743967ac-caee-4021-877e-ada558470f
 
 Code state: base commit `d2b63fa`, with the current working tree changes for the normal Ark VHTLC swap path, restart idempotency, setup top-ups, LND liquidity rebalance, and proof timing fields.
 
-The run was executed through the bridge UI backend against the local simulation connected to the public Voltage staging Bitcoin node over the local TLS/SNI P2P tunnel. The setup flow confirmed existing RGB and Ark asset ids, verified provider and taker Ark gRPC wallet BTC liquidity and Ark asset inventory, and confirmed enough `lnd1 -> lnd2` outbound liquidity for the RGB-to-Ark hold-invoice leg.
+The run was executed through the bridge UI backend against the local simulation connected to a public Voltage Bitcoin node over the local TLS/SNI P2P tunnel. The setup flow confirmed existing RGB and Ark asset ids, verified provider and taker Ark gRPC wallet BTC liquidity and Ark asset inventory, and confirmed enough `lnd1 -> lnd2` outbound liquidity for the RGB-to-Ark hold-invoice leg.
 
 ## Commands
 
