@@ -46,6 +46,9 @@ start_bitcoind() {
     if [ "$BITCOIND_P2P_TUNNEL_ENABLED" = "1" ]; then
       "$SIM_DIR/scripts/bitcoind-p2p-tunnel.sh" start
     fi
+    if [ "$BITCOIND_ZMQ_TUNNEL_ENABLED" = "1" ]; then
+      "$SIM_DIR/scripts/bitcoind-zmq-tunnel.sh" start
+    fi
     return 0
   fi
 
@@ -673,6 +676,7 @@ while read -r service; do
   case "$service" in
     bitcoind) start_bitcoind ;;
     bitcoind-p2p-tunnel) "$SIM_DIR/scripts/bitcoind-p2p-tunnel.sh" start ;;
+    bitcoind-zmq-tunnel) "$SIM_DIR/scripts/bitcoind-zmq-tunnel.sh" start ;;
     bitcoind-rpc-proxy) start_bitcoind_rpc_proxy ;;
     esplora) start_esplora ;;
     nbxplorer-postgres) start_nbxplorer_postgres ;;

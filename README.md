@@ -118,7 +118,7 @@ curl -sS http://127.0.0.1:8091/api/flows/<run-id> | jq
 
 ## Voltage Mutinynet Nodes
 
-The simulator can use a Voltage-hosted Mutinynet Bitcoin Core node for RPC and P2P. Configure HTTPS RPC normally, enable the local P2P tunnel, and leave `BITCOIND_P2P_HOST` empty so LND neutrino and NBXplorer use the plaintext localhost tunnel.
+The simulator can use a Voltage-hosted Mutinynet Bitcoin Core node for RPC, P2P, and optional ZMQ. Configure HTTPS RPC normally, enable the local P2P tunnel, and leave `BITCOIND_P2P_HOST` empty so LND neutrino and NBXplorer use the plaintext localhost tunnel.
 
 ```bash
 BITCOIND_MODE=external
@@ -135,12 +135,30 @@ BITCOIND_P2P_TUNNEL_TARGET_PORT=38333
 
 When the P2P hostname matches `BITCOIND_RPC_HOST`, `BITCOIND_P2P_TUNNEL_TARGET_HOST` and `BITCOIND_P2P_TUNNEL_SERVER_NAME` can be omitted. For staging nodes, use the staging hostname, for example `<node>.b.staging.voltageapp.io`.
 
-`sim-start all` starts the tunnel automatically. For a focused check, run:
+If the node exposes both TLS/SNI ZMQ rawblock and rawtx ports, the same proxy can provide local endpoints for LND bitcoind mode:
+
+```bash
+BITCOIND_ZMQ_TUNNEL_ENABLED=1
+BITCOIND_ZMQ_TUNNEL_LOCAL_HOST=127.0.0.1
+BITCOIND_ZMQ_TUNNEL_RAW_BLOCK_LOCAL_PORT=28332
+BITCOIND_ZMQ_TUNNEL_RAW_TX_LOCAL_PORT=28333
+BITCOIND_ZMQ_TUNNEL_TARGET_HOST=<node>.b.voltageapp.io
+BITCOIND_ZMQ_TUNNEL_RAW_BLOCK_TARGET_PORT=28332
+BITCOIND_ZMQ_TUNNEL_RAW_TX_TARGET_PORT=28333
+```
+
+When enabled, the ZMQ tunnel automatically sets `BITCOIND_ZMQ_PUB_RAW_BLOCK=tcp://127.0.0.1:28332` and `BITCOIND_ZMQ_PUB_RAW_TX=tcp://127.0.0.1:28333` unless those values are already set.
+
+`sim-start all` starts enabled tunnels automatically. For focused checks, run:
 
 ```bash
 sim-start p2p
 sim-status p2p
 nc -vz -w 5 127.0.0.1 29333
+sim-start zmq
+sim-status zmq
+nc -vz -w 5 127.0.0.1 28332
+nc -vz -w 5 127.0.0.1 28333
 ```
 
 ## Runtime Boundary

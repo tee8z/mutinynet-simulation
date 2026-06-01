@@ -41,66 +41,20 @@ tunnel_server_name() {
   fi
 }
 
-port_is_open() {
-  if (echo >"/dev/tcp/$BITCOIND_P2P_TUNNEL_LOCAL_HOST/$BITCOIND_P2P_TUNNEL_LOCAL_PORT") >/dev/null 2>&1; then
-    return 0
-  fi
-  return 1
-}
-
-print_tunnel_port() {
-  if port_is_open; then
-    echo "  port: ${BITCOIND_P2P_TUNNEL_LOCAL_HOST}:${BITCOIND_P2P_TUNNEL_LOCAL_PORT} open"
-  else
-    echo "  port: ${BITCOIND_P2P_TUNNEL_LOCAL_HOST}:${BITCOIND_P2P_TUNNEL_LOCAL_PORT} closed"
-  fi
-}
-
-pid_is_running() {
-  local candidate="$1"
-  [ -f "$candidate" ] && kill -0 "$(cat "$candidate")" >/dev/null 2>&1
-}
-
-current_pid_file() {
-  if pid_is_running "$pid"; then
-    printf '%s' "$pid"
-    return 0
-  fi
-  return 1
-}
-
 status() {
-  local running_pid
   echo "[bitcoind-p2p-tunnel]"
   echo "  mode: tls"
-  echo "  local: ${BITCOIND_P2P_TUNNEL_LOCAL_HOST}:${BITCOIND_P2P_TUNNEL_LOCAL_PORT}"
-  echo "  target: $(tunnel_target_host):${BITCOIND_P2P_TUNNEL_TARGET_PORT}"
   echo "  sni: $(tunnel_server_name)"
-  echo "  log: $log"
-  if running_pid="$(current_pid_file)"; then
-    echo "  pid: $(cat "$running_pid")"
-  else
-    echo "  pid: not running"
-  fi
-  print_tunnel_port
+  bitcoind_tls_tcp_proxy_status "" \
+    "$BITCOIND_P2P_TUNNEL_LOCAL_HOST" \
+    "$BITCOIND_P2P_TUNNEL_LOCAL_PORT" \
+    "$(tunnel_target_host)" \
+    "$BITCOIND_P2P_TUNNEL_TARGET_PORT" \
+    "$pid" \
+    "$log"
 }
 
 start() {
-  mkdir -p "$RUN_DIR" "$LOG_DIR"
-
-  local running_pid
-  if running_pid="$(current_pid_file)"; then
-    echo "bitcoind-p2p-tunnel already running: pid $(cat "$running_pid")"
-    wait_for_tcp "$BITCOIND_P2P_TUNNEL_LOCAL_HOST" "$BITCOIND_P2P_TUNNEL_LOCAL_PORT" bitcoind-p2p-tunnel 30
-    return 0
-  fi
-  if port_is_open; then
-    echo "bitcoind-p2p-tunnel already listening on ${BITCOIND_P2P_TUNNEL_LOCAL_HOST}:${BITCOIND_P2P_TUNNEL_LOCAL_PORT}"
-    return 0
-  fi
-  rm -f "$pid"
-
-  require_cmd python3
   local target_host server_name
   target_host="$(tunnel_target_host)"
   server_name="$(tunnel_server_name)"
@@ -109,30 +63,23 @@ start() {
     return 2
   fi
 
-  echo "starting bitcoind-p2p-tunnel ${BITCOIND_P2P_TUNNEL_LOCAL_HOST}:${BITCOIND_P2P_TUNNEL_LOCAL_PORT} -> tls://${target_host}:${BITCOIND_P2P_TUNNEL_TARGET_PORT} sni=${server_name}"
-  BITCOIND_TLS_PROXY_MODE=tcp \
-  BITCOIND_TLS_PROXY_LISTEN_HOST="$BITCOIND_P2P_TUNNEL_LOCAL_HOST" \
-  BITCOIND_TLS_PROXY_LISTEN_PORT="$BITCOIND_P2P_TUNNEL_LOCAL_PORT" \
-  BITCOIND_TLS_PROXY_TARGET_HOST="$target_host" \
-  BITCOIND_TLS_PROXY_TARGET_PORT="$BITCOIND_P2P_TUNNEL_TARGET_PORT" \
-  BITCOIND_TLS_PROXY_SERVER_NAME="$server_name" \
-  BITCOIND_TLS_PROXY_INSECURE_SKIP_VERIFY="$BITCOIND_P2P_TUNNEL_INSECURE_SKIP_VERIFY" \
-    setsid python3 "$SIM_DIR/scripts/bitcoind-tls-proxy.py" </dev/null >"$log" 2>&1 &
-  echo $! >"$pid"
-
-  wait_for_tcp "$BITCOIND_P2P_TUNNEL_LOCAL_HOST" "$BITCOIND_P2P_TUNNEL_LOCAL_PORT" bitcoind-p2p-tunnel 30
+  start_bitcoind_tls_tcp_proxy \
+    bitcoind-p2p-tunnel \
+    "$BITCOIND_P2P_TUNNEL_LOCAL_HOST" \
+    "$BITCOIND_P2P_TUNNEL_LOCAL_PORT" \
+    "$target_host" \
+    "$BITCOIND_P2P_TUNNEL_TARGET_PORT" \
+    "$server_name" \
+    "$BITCOIND_P2P_TUNNEL_INSECURE_SKIP_VERIFY" \
+    "$pid" \
+    "$log"
 }
 
 stop() {
-  if pid_is_running "$pid"; then
-    echo "stopping bitcoind-p2p-tunnel pid $(cat "$pid")"
-    kill "$(cat "$pid")"
-  fi
-  rm -f "$pid"
+  stop_bitcoind_tls_tcp_proxy bitcoind-p2p-tunnel "$pid"
 }
 
 foreground() {
-  require_cmd python3
   local target_host server_name
   target_host="$(tunnel_target_host)"
   server_name="$(tunnel_server_name)"
@@ -141,15 +88,14 @@ foreground() {
     return 2
   fi
 
-  echo "foreground bitcoind-p2p-tunnel ${BITCOIND_P2P_TUNNEL_LOCAL_HOST}:${BITCOIND_P2P_TUNNEL_LOCAL_PORT} -> tls://${target_host}:${BITCOIND_P2P_TUNNEL_TARGET_PORT} sni=${server_name}"
-  BITCOIND_TLS_PROXY_MODE=tcp \
-  BITCOIND_TLS_PROXY_LISTEN_HOST="$BITCOIND_P2P_TUNNEL_LOCAL_HOST" \
-  BITCOIND_TLS_PROXY_LISTEN_PORT="$BITCOIND_P2P_TUNNEL_LOCAL_PORT" \
-  BITCOIND_TLS_PROXY_TARGET_HOST="$target_host" \
-  BITCOIND_TLS_PROXY_TARGET_PORT="$BITCOIND_P2P_TUNNEL_TARGET_PORT" \
-  BITCOIND_TLS_PROXY_SERVER_NAME="$server_name" \
-  BITCOIND_TLS_PROXY_INSECURE_SKIP_VERIFY="$BITCOIND_P2P_TUNNEL_INSECURE_SKIP_VERIFY" \
-    exec python3 "$SIM_DIR/scripts/bitcoind-tls-proxy.py"
+  foreground_bitcoind_tls_tcp_proxy \
+    bitcoind-p2p-tunnel \
+    "$BITCOIND_P2P_TUNNEL_LOCAL_HOST" \
+    "$BITCOIND_P2P_TUNNEL_LOCAL_PORT" \
+    "$target_host" \
+    "$BITCOIND_P2P_TUNNEL_TARGET_PORT" \
+    "$server_name" \
+    "$BITCOIND_P2P_TUNNEL_INSECURE_SKIP_VERIFY"
 }
 
 case "${1:-start}" in

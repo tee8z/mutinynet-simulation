@@ -33,15 +33,19 @@ stop_service() {
   rm -f "$pid"
 }
 
-should_stop_bitcoind_p2p_tunnel() {
+should_stop_bitcoind_tunnel() {
+  local tunnel="$1" arg
+  shift
   if [ "$#" -eq 0 ]; then
     return 0
   fi
 
-  local arg
   for arg in "$@"; do
-    case "$arg" in
-      all|bitcoin|bitcoin-core|core|bitcoind|bitcoind-p2p|p2p|p2p-tunnel|bitcoind-p2p-tunnel)
+    case "$tunnel:$arg" in
+      p2p:all|p2p:bitcoin|p2p:bitcoin-core|p2p:core|p2p:bitcoind|p2p:bitcoind-p2p|p2p:p2p|p2p:p2p-tunnel|p2p:bitcoind-p2p-tunnel)
+        return 0
+        ;;
+      zmq:all|zmq:bitcoin|zmq:bitcoin-core|zmq:core|zmq:bitcoind|zmq:bitcoind-zmq|zmq:zmq|zmq:zmq-tunnel|zmq:bitcoind-zmq-tunnel)
         return 0
         ;;
     esac
@@ -51,15 +55,22 @@ should_stop_bitcoind_p2p_tunnel() {
 
 mapfile -t services < <(services_from_args "$@")
 stopped_bitcoind_p2p_tunnel=0
+stopped_bitcoind_zmq_tunnel=0
 for ((i = ${#services[@]} - 1; i >= 0; i--)); do
   if [ "${services[$i]}" = "bitcoind-p2p-tunnel" ]; then
     "$SIM_DIR/scripts/bitcoind-p2p-tunnel.sh" stop || true
     stopped_bitcoind_p2p_tunnel=1
+  elif [ "${services[$i]}" = "bitcoind-zmq-tunnel" ]; then
+    "$SIM_DIR/scripts/bitcoind-zmq-tunnel.sh" stop || true
+    stopped_bitcoind_zmq_tunnel=1
   else
     stop_service "${services[$i]}"
   fi
 done
 
-if should_stop_bitcoind_p2p_tunnel "$@" && [ "$stopped_bitcoind_p2p_tunnel" = "0" ]; then
+if should_stop_bitcoind_tunnel p2p "$@" && [ "$stopped_bitcoind_p2p_tunnel" = "0" ]; then
   "$SIM_DIR/scripts/bitcoind-p2p-tunnel.sh" stop || true
+fi
+if should_stop_bitcoind_tunnel zmq "$@" && [ "$stopped_bitcoind_zmq_tunnel" = "0" ]; then
+  "$SIM_DIR/scripts/bitcoind-zmq-tunnel.sh" stop || true
 fi
