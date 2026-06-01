@@ -112,6 +112,7 @@ sim-init-unlock() { "$MUTINY_SIM_DIR/scripts/init-unlock.sh" "$@"; }
 sim-status() { "$MUTINY_SIM_DIR/scripts/status.sh" "$@"; }
 sim-faucet-auth() { "$MUTINY_SIM_DIR/scripts/faucet-auth.sh" "$@"; }
 sim-faucet-fund() { "$MUTINY_SIM_DIR/scripts/faucet-fund.sh" "$@"; }
+sim-bitcoind-p2p-tunnel() { "$MUTINY_SIM_DIR/scripts/bitcoind-p2p-tunnel.sh" "$@"; }
 sim-bitcoind-p2p-port-forward() { "$MUTINY_SIM_DIR/scripts/bitcoind-p2p-port-forward.sh" "$@"; }
 sim-bridge-ui() { "$MUTINY_SIM_DIR/scripts/bridge-ui.sh" "$@"; }
 sim-bridge-plan() { "$MUTINY_SIM_DIR/scripts/bridge-plan.sh" "$@"; }

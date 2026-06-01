@@ -48,13 +48,16 @@ BITCOIND_RPC_PROXY_PORT="${BITCOIND_RPC_PROXY_PORT:-$BITCOIND_RPC_PORT}"
 BITCOIND_RPC_PROXY_TIMEOUT="${BITCOIND_RPC_PROXY_TIMEOUT:-60}"
 BITCOIND_ZMQ_PUB_RAW_BLOCK="${BITCOIND_ZMQ_PUB_RAW_BLOCK:-${BITCOIND_ZMQPUBRAWBLOCK:-}}"
 BITCOIND_ZMQ_PUB_RAW_TX="${BITCOIND_ZMQ_PUB_RAW_TX:-${BITCOIND_ZMQPUBRAWTX:-}}"
-BITCOIND_P2P_PORT_FORWARD_ENABLED="${BITCOIND_P2P_PORT_FORWARD_ENABLED:-0}"
-BITCOIND_P2P_PORT_FORWARD_NAMESPACE="${BITCOIND_P2P_PORT_FORWARD_NAMESPACE:-}"
-BITCOIND_P2P_PORT_FORWARD_SERVICE="${BITCOIND_P2P_PORT_FORWARD_SERVICE:-}"
-BITCOIND_P2P_PORT_FORWARD_LOCAL_HOST="${BITCOIND_P2P_PORT_FORWARD_LOCAL_HOST:-127.0.0.1}"
-BITCOIND_P2P_PORT_FORWARD_LOCAL_PORT="${BITCOIND_P2P_PORT_FORWARD_LOCAL_PORT:-29333}"
-BITCOIND_P2P_PORT_FORWARD_REMOTE_PORT="${BITCOIND_P2P_PORT_FORWARD_REMOTE_PORT:-38333}"
-BITCOIND_P2P_PORT_FORWARD_AWS_PROFILE="${BITCOIND_P2P_PORT_FORWARD_AWS_PROFILE:-${AWS_PROFILE:-}}"
+BITCOIND_P2P_TUNNEL_ENABLED="${BITCOIND_P2P_TUNNEL_ENABLED:-${BITCOIND_P2P_PORT_FORWARD_ENABLED:-0}}"
+BITCOIND_P2P_TUNNEL_LOCAL_HOST="${BITCOIND_P2P_TUNNEL_LOCAL_HOST:-${BITCOIND_P2P_PORT_FORWARD_LOCAL_HOST:-127.0.0.1}}"
+BITCOIND_P2P_TUNNEL_LOCAL_PORT="${BITCOIND_P2P_TUNNEL_LOCAL_PORT:-${BITCOIND_P2P_PORT_FORWARD_LOCAL_PORT:-29333}}"
+BITCOIND_P2P_TUNNEL_TARGET_HOST="${BITCOIND_P2P_TUNNEL_TARGET_HOST:-}"
+BITCOIND_P2P_TUNNEL_TARGET_PORT="${BITCOIND_P2P_TUNNEL_TARGET_PORT:-$BITCOIND_P2P_PORT}"
+BITCOIND_P2P_TUNNEL_SERVER_NAME="${BITCOIND_P2P_TUNNEL_SERVER_NAME:-$BITCOIND_P2P_TUNNEL_TARGET_HOST}"
+BITCOIND_P2P_TUNNEL_INSECURE_SKIP_VERIFY="${BITCOIND_P2P_TUNNEL_INSECURE_SKIP_VERIFY:-0}"
+BITCOIND_P2P_PORT_FORWARD_ENABLED="$BITCOIND_P2P_TUNNEL_ENABLED"
+BITCOIND_P2P_PORT_FORWARD_LOCAL_HOST="$BITCOIND_P2P_TUNNEL_LOCAL_HOST"
+BITCOIND_P2P_PORT_FORWARD_LOCAL_PORT="$BITCOIND_P2P_TUNNEL_LOCAL_PORT"
 
 if [ "$BITCOIND_MODE" = "local" ]; then
   BITCOIND_RPC_HOST="http://127.0.0.1:$BITCOIND_RPC_PORT"
@@ -260,6 +263,7 @@ wait_for_tcp() {
 pid_file() {
   case "$1" in
     bitcoind) printf '%s/bitcoind.pid' "$RUN_DIR" ;;
+    bitcoind-p2p-tunnel|bitcoind-p2p-port-forward) printf '%s/bitcoind-p2p-tunnel.pid' "$RUN_DIR" ;;
     bitcoind-rpc-proxy) printf '%s/bitcoind-rpc-proxy.pid' "$RUN_DIR" ;;
     esplora) printf '%s/esplora.pid' "$RUN_DIR" ;;
     nbxplorer-postgres) printf '%s/nbxplorer-postgres.pid' "$RUN_DIR" ;;
@@ -277,6 +281,7 @@ pid_file() {
 log_file() {
   case "$1" in
     bitcoind) printf '%s/bitcoind.log' "$LOG_DIR" ;;
+    bitcoind-p2p-tunnel|bitcoind-p2p-port-forward) printf '%s/bitcoind-p2p-tunnel.log' "$LOG_DIR" ;;
     bitcoind-rpc-proxy) printf '%s/bitcoind-rpc-proxy.log' "$LOG_DIR" ;;
     esplora) printf '%s/esplora.log' "$LOG_DIR" ;;
     nbxplorer-postgres) printf '%s/nbxplorer-postgres.log' "$LOG_DIR" ;;
@@ -301,6 +306,7 @@ services_from_args() {
   for arg in "$@"; do
     case "$arg" in
       bitcoin|bitcoin-core|core|bitcoind) printf 'bitcoind\n' ;;
+      bitcoind-p2p|p2p|p2p-tunnel|bitcoind-p2p-tunnel|bitcoind-p2p-port-forward) printf 'bitcoind-p2p-tunnel\n' ;;
       bitcoind-rpc|rpc|bitcoind-rpc-proxy) printf 'bitcoind-rpc-proxy\n' ;;
       esplora|electrs|indexer|rgb-indexer|rln-indexer) printf 'esplora\n' ;;
       nbx-postgres|nbxplorer-postgres|nbxplorer-db) printf 'nbxplorer-postgres\n' ;;
@@ -624,8 +630,8 @@ bitcoind_rpc_effective_port() {
 }
 
 bitcoind_p2p_host() {
-  if [ "$BITCOIND_P2P_PORT_FORWARD_ENABLED" = "1" ] && [ -z "$BITCOIND_P2P_HOST" ]; then
-    printf '%s' "$BITCOIND_P2P_PORT_FORWARD_LOCAL_HOST"
+  if [ "$BITCOIND_P2P_TUNNEL_ENABLED" = "1" ] && [ -z "$BITCOIND_P2P_HOST" ]; then
+    printf '%s' "$BITCOIND_P2P_TUNNEL_LOCAL_HOST"
     return 0
   fi
   if [ -n "$BITCOIND_P2P_HOST" ]; then
@@ -636,8 +642,8 @@ bitcoind_p2p_host() {
 }
 
 bitcoind_p2p_port() {
-  if [ "$BITCOIND_P2P_PORT_FORWARD_ENABLED" = "1" ] && [ -z "$BITCOIND_P2P_HOST" ]; then
-    printf '%s' "$BITCOIND_P2P_PORT_FORWARD_LOCAL_PORT"
+  if [ "$BITCOIND_P2P_TUNNEL_ENABLED" = "1" ] && [ -z "$BITCOIND_P2P_HOST" ]; then
+    printf '%s' "$BITCOIND_P2P_TUNNEL_LOCAL_PORT"
   else
     printf '%s' "$BITCOIND_P2P_PORT"
   fi
@@ -664,8 +670,8 @@ require_lnd_neutrino_connect() {
     return 0
   fi
 
-  echo "missing neutrino peer: set LND_NEUTRINO_CONNECT or BITCOIND_P2P_HOST" >&2
-  echo "BITCOIND_RPC_HOST can also be used when the P2P host matches the RPC host" >&2
+  echo "missing neutrino peer: set LND_NEUTRINO_CONNECT, BITCOIND_P2P_HOST, or BITCOIND_P2P_TUNNEL_ENABLED=1" >&2
+  echo "BITCOIND_RPC_HOST can also be used when a plaintext P2P endpoint is reachable on BITCOIND_P2P_PORT" >&2
   return 2
 }
 

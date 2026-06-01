@@ -150,17 +150,18 @@ BITCOIND_PEERBLOCKFILTERS=1
 
 ## P2P Tunnel
 
-For a Core P2P service reachable only through Kubernetes:
+For Voltage-hosted Mutinynet Bitcoin Core nodes, use HTTPS RPC and enable the local TLS/SNI P2P tunnel. Leave `BITCOIND_P2P_HOST` empty so LND neutrino and NBXplorer use the local plaintext tunnel.
 
 ```bash
-BITCOIND_P2P_PORT_FORWARD_ENABLED=1
-BITCOIND_P2P_PORT_FORWARD_NAMESPACE=<namespace>
-BITCOIND_P2P_PORT_FORWARD_SERVICE=<service>
-BITCOIND_P2P_PORT_FORWARD_LOCAL_PORT=29333
-BITCOIND_P2P_PORT_FORWARD_REMOTE_PORT=38333
+BITCOIND_RPC_HOST=https://<node>.b.voltageapp.io
+BITCOIND_RPC_PROXY_ENABLED=auto
+BITCOIND_P2P_TUNNEL_ENABLED=1
+BITCOIND_P2P_TUNNEL_LOCAL_PORT=29333
+BITCOIND_P2P_TUNNEL_TARGET_HOST=<node>.b.voltageapp.io
+BITCOIND_P2P_TUNNEL_TARGET_PORT=38333
 ```
 
-`sim-start all` starts the tunnel when it is enabled.
+`sim-start all` starts the tunnel when it is enabled. Use `sim-start p2p`, `sim-status p2p`, and `sim-stop p2p` for focused tunnel checks.
 
 ## Market Maker
 

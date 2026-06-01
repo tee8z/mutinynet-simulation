@@ -468,7 +468,7 @@ async fn p2p_status(State(state): State<AppState>) -> Json<CommandSnapshot> {
     let mut snapshot = run_cluster_command_timeout(
         &state.sim_dir,
         "bitcoind_p2p",
-        "scripts/bitcoind-p2p-port-forward.sh status",
+        "scripts/bitcoind-p2p-tunnel.sh status",
         Duration::from_secs(10),
     )
     .await;
@@ -487,7 +487,7 @@ async fn p2p_start(State(state): State<AppState>) -> Json<CommandSnapshot> {
         run_cluster_command_timeout(
             &state.sim_dir,
             "bitcoind_p2p_start",
-            "scripts/bitcoind-p2p-port-forward.sh start",
+            "scripts/bitcoind-p2p-tunnel.sh start",
             Duration::from_secs(45),
         )
         .await,
@@ -499,7 +499,7 @@ async fn p2p_stop(State(state): State<AppState>) -> Json<CommandSnapshot> {
         run_cluster_command_timeout(
             &state.sim_dir,
             "bitcoind_p2p_stop",
-            "scripts/bitcoind-p2p-port-forward.sh stop",
+            "scripts/bitcoind-p2p-tunnel.sh stop",
             Duration::from_secs(15),
         )
         .await,

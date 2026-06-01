@@ -116,6 +116,33 @@ curl -sS http://127.0.0.1:8091/api/flows/<run-id> | jq
 
 `setup-assets` funds the provider Ark gRPC wallet and the taker Ark gRPC wallet with BTC liquidity plus Ark asset inventory. The swap run writes proof artifacts under `state/bridge-ui/<run-id>/artifacts/`.
 
+## Voltage Mutinynet Nodes
+
+The simulator can use a Voltage-hosted Mutinynet Bitcoin Core node for RPC and P2P. Configure HTTPS RPC normally, enable the local P2P tunnel, and leave `BITCOIND_P2P_HOST` empty so LND neutrino and NBXplorer use the plaintext localhost tunnel.
+
+```bash
+BITCOIND_MODE=external
+BITCOIND_RPC_HOST=https://<node>.b.voltageapp.io
+BITCOIND_RPC_USER=<rpc-user>
+BITCOIND_RPC_PASS=<rpc-password>
+BITCOIND_RPC_PROXY_ENABLED=auto
+BITCOIND_P2P_TUNNEL_ENABLED=1
+BITCOIND_P2P_TUNNEL_LOCAL_HOST=127.0.0.1
+BITCOIND_P2P_TUNNEL_LOCAL_PORT=29333
+BITCOIND_P2P_TUNNEL_TARGET_HOST=<node>.b.voltageapp.io
+BITCOIND_P2P_TUNNEL_TARGET_PORT=38333
+```
+
+When the P2P hostname matches `BITCOIND_RPC_HOST`, `BITCOIND_P2P_TUNNEL_TARGET_HOST` and `BITCOIND_P2P_TUNNEL_SERVER_NAME` can be omitted. For staging nodes, use the staging hostname, for example `<node>.b.staging.voltageapp.io`.
+
+`sim-start all` starts the tunnel automatically. For a focused check, run:
+
+```bash
+sim-start p2p
+sim-status p2p
+nc -vz -w 5 127.0.0.1 29333
+```
+
 ## Runtime Boundary
 
 | Area | Implementation |
@@ -138,7 +165,7 @@ The proof records both directions with `contract_funded`, `contract_claimed`, `p
 | [USAGE.md](USAGE.md) | setup, flake commands, configuration |
 | [docs/ark-vhtlc-swap.md](docs/ark-vhtlc-swap.md) | Ark VHTLC swap implementation |
 | [docs/proofs/](docs/proofs/) | public proof artifacts |
-| [scripts/](scripts/) | cluster lifecycle and bridge harness |
+| [scripts/](scripts/) | local service lifecycle and bridge harness |
 | [providers/ark-lnd-swap-provider/](providers/ark-lnd-swap-provider/) | Ark/LND coordinator |
 | [tools/bridge-ui/](tools/bridge-ui/) | Maud-rendered control plane for running bridge flows |
 | [.env.example](.env.example) | documented runtime knobs |

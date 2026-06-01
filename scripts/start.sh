@@ -43,8 +43,8 @@ write_bitcoind_config() {
 start_bitcoind() {
   if ! bitcoind_managed; then
     echo "bitcoind external; using $(bitcoind_rpc_target_url)"
-    if [ "$BITCOIND_P2P_PORT_FORWARD_ENABLED" = "1" ]; then
-      "$SIM_DIR/scripts/bitcoind-p2p-port-forward.sh" start
+    if [ "$BITCOIND_P2P_TUNNEL_ENABLED" = "1" ]; then
+      "$SIM_DIR/scripts/bitcoind-p2p-tunnel.sh" start
     fi
     return 0
   fi
@@ -276,7 +276,7 @@ start_nbxplorer() {
   esac
   if [ -n "$NBXPLORER_BTCNODEENDPOINT" ]; then
     args+=(--btcnodeendpoint "$NBXPLORER_BTCNODEENDPOINT")
-  elif [ -n "$BITCOIND_P2P_HOST" ]; then
+  elif [ -n "$BITCOIND_P2P_HOST" ] || [ "$BITCOIND_P2P_TUNNEL_ENABLED" = "1" ]; then
     args+=(--btcnodeendpoint "$(bitcoind_p2p_endpoint)")
   fi
 
@@ -671,6 +671,7 @@ start_ark_lnd_provider() {
 while read -r service; do
   case "$service" in
     bitcoind) start_bitcoind ;;
+    bitcoind-p2p-tunnel) "$SIM_DIR/scripts/bitcoind-p2p-tunnel.sh" start ;;
     bitcoind-rpc-proxy) start_bitcoind_rpc_proxy ;;
     esplora) start_esplora ;;
     nbxplorer-postgres) start_nbxplorer_postgres ;;
