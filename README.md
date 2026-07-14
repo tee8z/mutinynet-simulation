@@ -182,6 +182,8 @@ The proof records both directions with `contract_funded`, `contract_claimed`, `p
 | --- | --- |
 | [USAGE.md](USAGE.md) | setup, flake commands, configuration |
 | [docs/ark-vhtlc-swap.md](docs/ark-vhtlc-swap.md) | Ark VHTLC swap implementation |
+| [docs/rgb-ark-contract-swap.md](docs/rgb-ark-contract-swap.md) | Small RGB/Ark same-hash contract artifact generator |
+| [docs/rgb-htlc-kit.md](docs/rgb-htlc-kit.md) | Real RGB/Sonic witness-lock issuer and local contract demo |
 | [docs/proofs/](docs/proofs/) | public proof artifacts |
 | [scripts/](scripts/) | local service lifecycle and bridge harness |
 | [providers/ark-lnd-swap-provider/](providers/ark-lnd-swap-provider/) | Ark/LND coordinator |

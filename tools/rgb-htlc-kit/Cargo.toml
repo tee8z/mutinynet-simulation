@@ -1,0 +1,24 @@
+[package]
+name = "rgb-htlc-kit"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[features]
+default = ["std"]
+std = []
+
+[dependencies]
+aluvm = "0.12.0"
+amplify = "4.9.0"
+anyhow = "1.0"
+commit_verify = "0.12.0"
+hex = "0.4"
+hypersonic = { version = "0.12.0", features = ["binfile", "serde"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+sonic-persist-fs = "0.12.0"
+strict_encoding = "2.9.1"
+strict_types = "2.9.0"
+ultrasonic = "0.12.0"

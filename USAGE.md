@@ -20,7 +20,7 @@ The flake pins or packages these external projects:
 | --- | --- |
 | [nixpkgs](https://github.com/NixOS/nixpkgs) | package set and dev shell |
 | [tee8z/lnd](https://github.com/tee8z/lnd/tree/feat/custom-signet-block-time) | Mutinynet-aware LND fork |
-| [tee8z/rgb-lightning-node](https://github.com/tee8z/rgb-lightning-node/tree/feat/regular-lightning-channels) | RGB Lightning node fork |
+| [tee8z/rgb-lightning-node](https://github.com/tee8z/rgb-lightning-node/tree/feat/regular-lightning-channels-from-utexo) | RGB Lightning node fork based on UTEXO |
 | [arkade-os/arkd](https://github.com/arkade-os/arkd) | Ark server, wallet, and CLI |
 | [benthecarman/bitcoin](https://github.com/benthecarman/bitcoin/releases/tag/mutinynet-inq-template-hash) | local Mutinynet Bitcoin Core |
 | [Blockstream/electrs](https://github.com/Blockstream/electrs/tree/new-index) | optional local Esplora backend |
@@ -89,6 +89,47 @@ sim-build-rln
 ```
 
 The helper uses `RLN_REPO`, `RLN_GIT_URL`, and `RLN_GIT_REF` from `.env`.
+
+Defaults use `https://github.com/tee8z/rgb-lightning-node.git` at
+`feat/regular-lightning-channels-from-utexo`. That branch is based on UTEXO's
+`v0.5.2-beta.1` release and keeps their BTC-only funding/OP_RETURN gating while
+patching regular Lightning policy.
+
+Compatibility note: RGB payments still use `RGB_HTLC_MIN_MSAT = 3_000_000`
+msat (`3,000` sats). BTC-only channels use `VANILLA_HTLC_MIN_MSAT = 1` msat and
+a fixed dust HTLC exposure limit so normal small Lightning payments are not
+blocked by the RGB channel minimum.
+
+## Validate Regular Lightning Channels
+
+To check whether the RGB node can open a BTC-only channel to LND, run:
+
+```bash
+sim-test-rln-btc-channel
+```
+
+The check starts/unlocks the selected nodes, opens `node4 -> lnd1` by default
+with `asset_id:null` and `asset_amount:null`, then verifies that RGB Lightning
+node reports a usable uncolored channel and LND reports an active channel.
+It validates the uncolored funding path; the fork branch also lowers the
+BTC-only channel HTLC minimum to `1` msat while leaving RGB payments at
+`3,000,000` msat.
+
+If the RGB node has no vanilla BTC funding, fund it first:
+
+```bash
+sim-faucet-fund node4
+```
+
+Useful overrides:
+
+```bash
+RLN_BTC_TEST_RGB_NODE=node1
+RLN_BTC_TEST_LND_NODE=lnd1
+RLN_BTC_TEST_CHANNEL_CAPACITY_SAT=100000
+RLN_BTC_TEST_CHANNEL_PUSH_SAT=40000
+RLN_BTC_TEST_CHANNEL_PUBLIC=1
+```
 
 ## Start
 
@@ -229,6 +270,32 @@ The Ark VHTLC harness is specified in
 `state/tests/lightning-ark-bridge-<mode>-<timestamp>/`; UI artifacts use
 `state/bridge-ui/<run-id>/artifacts/`.
 
+## RGB HTLC Kit
+
+Generate and run the direct RGB/Sonic witness-lock artifact:
+
+```bash
+sim-rgb-htlc-kit --out state/tests/rgb-htlc-kit-demo
+```
+
+The output contains an importable RGB issuer, a local RGB contract ledger, a
+JSON summary, and an `rgb-wallet` import helper. See
+[docs/rgb-htlc-kit.md](docs/rgb-htlc-kit.md).
+
+## RGB/Ark Contract Artifact
+
+Generate a small shareable contract pack without using LND as the middle hop:
+
+```bash
+sim-rgb-ark-contract-swap \
+  --ark-asset-id <ark_asset_id> \
+  --rgb-asset-id <rgb_asset_id>
+```
+
+The artifact directory contains the concrete Ark Taproot VHTLC scripts and the
+current RGB-node same-hash hodl invoice request. The direct RGB contract path is
+now tracked in the real Rust/Sonic kit above.
+
 ## Bridge UI
 
 Start the local UI:
@@ -292,6 +359,7 @@ Nix apps are also exposed:
 ```bash
 nix run .#status
 nix run .#start -- all
+nix run .#test-rln-btc-channel
 nix run .#bridge-ui
 nix run .#test-lightning-ark-bridge -- all
 ```

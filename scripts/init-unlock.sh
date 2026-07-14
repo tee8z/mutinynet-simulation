@@ -64,16 +64,20 @@ init_unlock_rln_node() {
     --arg alias "$(node_alias "$node")" \
     '{
       password:$password,
-      bitcoind_rpc_username:$user,
-      bitcoind_rpc_password:$pass,
-      bitcoind_rpc_host:$host,
-      bitcoind_rpc_port:$port,
-      indexer_url:$indexer,
       proxy_endpoint:$proxy,
       skip_consistency_check:$skip_consistency_check,
       announce_addresses:$announce,
       announce_alias:$alias
-    }')"
+    } + (
+      if $indexer != "" then {
+        indexer_url:$indexer
+      } else {
+        bitcoind_rpc_username:$user,
+        bitcoind_rpc_password:$pass,
+        bitcoind_rpc_host:$host,
+        bitcoind_rpc_port:$port
+      } end
+    )')"
 
   echo "unlocking $node"
   output="$(mktemp)"

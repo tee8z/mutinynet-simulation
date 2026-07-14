@@ -374,9 +374,11 @@
         bridge-plan = mkApp pkgs "bridge-plan" "bridge-plan.sh";
         setup-bridge-assets = mkApp pkgs "setup-bridge-assets" "setup-bridge-assets.sh";
         setup-market-maker = mkApp pkgs "setup-market-maker" "setup-market-maker.sh";
+        test-rln-btc-channel = mkApp pkgs "test-rln-btc-channel" "test-rln-btc-channel.sh";
         test-lightning-ark-bridge = mkApp pkgs "test-lightning-ark-bridge" "test-lightning-ark-bridge.sh";
         rgb-asset-to-ark-asset = mkApp pkgs "rgb-asset-to-ark-asset" "rgb-asset-to-ark-asset.sh";
         ark-asset-to-rgb-asset = mkApp pkgs "ark-asset-to-rgb-asset" "ark-asset-to-rgb-asset.sh";
+        rgb-ark-contract-swap = mkApp pkgs "rgb-ark-contract-swap" "rgb-ark-contract-swap.sh";
       });
     };
 }

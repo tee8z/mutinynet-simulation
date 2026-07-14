@@ -118,9 +118,12 @@ sim-bridge-ui() { "$MUTINY_SIM_DIR/scripts/bridge-ui.sh" "$@"; }
 sim-bridge-plan() { "$MUTINY_SIM_DIR/scripts/bridge-plan.sh" "$@"; }
 sim-setup-bridge-assets() { "$MUTINY_SIM_DIR/scripts/setup-bridge-assets.sh" "$@"; }
 sim-setup-market-maker() { "$MUTINY_SIM_DIR/scripts/setup-market-maker.sh" "$@"; }
+sim-test-rln-btc-channel() { "$MUTINY_SIM_DIR/scripts/test-rln-btc-channel.sh" "$@"; }
 sim-test-lightning-ark-bridge() { "$MUTINY_SIM_DIR/scripts/test-lightning-ark-bridge.sh" "$@"; }
 sim-rgb-asset-to-ark-asset() { "$MUTINY_SIM_DIR/scripts/rgb-asset-to-ark-asset.sh" "$@"; }
 sim-ark-asset-to-rgb-asset() { "$MUTINY_SIM_DIR/scripts/ark-asset-to-rgb-asset.sh" "$@"; }
+sim-rgb-ark-contract-swap() { "$MUTINY_SIM_DIR/scripts/rgb-ark-contract-swap.sh" "$@"; }
+sim-rgb-htlc-kit() { "$MUTINY_SIM_DIR/scripts/rgb-htlc-kit.sh" "$@"; }
 
 sim-logs() {
   tail -f "$@" "$MUTINY_SIM_DIR"/logs/*.log
